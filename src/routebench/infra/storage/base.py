@@ -1,0 +1,1 @@
+"""StorageBackend protocol definition."""
