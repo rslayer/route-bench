@@ -1,0 +1,10 @@
+services:
+  osrm:
+    image: osrm/osrm-backend:latest
+    container_name: routebench-osrm
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./osrm-data:/data
+    command: osrm-routed --algorithm mld /data/region.osrm
+    restart: unless-stopped

@@ -1,0 +1,1 @@
+"""MatrixProvider protocol definition."""
