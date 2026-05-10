@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+data/sessions/
+data/telemetry/
+osrm-data/
+.env
+*.egg-info/
+dist/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+data/matrix_cache/
