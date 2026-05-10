@@ -81,6 +81,8 @@ class TestToolsRegistry:
             "analyze_outliers",
             "analyze_territory",
             "analyze_dispatch",
+            "route_benchmark",
+            "fleet_benchmark",
         }
         assert set(TOOLS.keys()) == expected
 
