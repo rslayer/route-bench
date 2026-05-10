@@ -1,1 +1,87 @@
-/* RouteBench report styles — placeholder */
+/* RouteBench report styles — screen + print */
+:root {
+  --color-bg: #ffffff;
+  --color-text: #1a1a2e;
+  --color-muted: #6b7280;
+  --color-border: #e5e7eb;
+  --color-accent: #2563eb;
+  --color-accent-light: #dbeafe;
+  --color-success: #059669;
+  --color-warning: #d97706;
+  --color-danger: #dc2626;
+  --color-info: #6366f1;
+  --color-card-bg: #f9fafb;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-sans);
+  color: var(--color-text);
+  background: var(--color-bg);
+  line-height: 1.6;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; }
+h2 { font-size: 1.35rem; font-weight: 600; margin: 2rem 0 0.75rem; border-bottom: 2px solid var(--color-accent); padding-bottom: 0.25rem; }
+h3 { font-size: 1.1rem; font-weight: 600; margin: 1.25rem 0 0.5rem; }
+p { margin-bottom: 0.75rem; }
+
+.header { border-bottom: 3px solid var(--color-accent); padding-bottom: 1rem; margin-bottom: 2rem; }
+.header .subtitle { color: var(--color-muted); font-size: 0.9rem; }
+
+.section { margin-bottom: 2rem; }
+
+.prose { background: var(--color-card-bg); border-left: 4px solid var(--color-accent); padding: 1rem 1.25rem; border-radius: 0 4px 4px 0; margin: 0.75rem 0; }
+
+.metrics-table { width: 100%; border-collapse: collapse; margin: 0.75rem 0; font-size: 0.9rem; }
+.metrics-table th, .metrics-table td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid var(--color-border); }
+.metrics-table th { background: var(--color-card-bg); font-weight: 600; color: var(--color-muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.metrics-table td { font-variant-numeric: tabular-nums; }
+.metrics-table tr:hover td { background: var(--color-accent-light); }
+
+.finding-card { border: 1px solid var(--color-border); border-radius: 6px; padding: 1rem 1.25rem; margin: 0.75rem 0; }
+.finding-card.severity-critical { border-left: 4px solid var(--color-danger); }
+.finding-card.severity-high { border-left: 4px solid var(--color-warning); }
+.finding-card.severity-medium { border-left: 4px solid var(--color-info); }
+.finding-card.severity-low { border-left: 4px solid var(--color-muted); }
+.finding-card.severity-info { border-left: 4px solid var(--color-border); }
+
+.severity-badge { display: inline-block; font-size: 0.75rem; font-weight: 600; padding: 0.15rem 0.5rem; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.05em; }
+.severity-badge.critical { background: #fee2e2; color: var(--color-danger); }
+.severity-badge.high { background: #fef3c7; color: var(--color-warning); }
+.severity-badge.medium { background: #e0e7ff; color: var(--color-info); }
+.severity-badge.low { background: #f3f4f6; color: var(--color-muted); }
+.severity-badge.info { background: #f3f4f6; color: var(--color-muted); }
+
+.chart-container { margin: 1rem 0; text-align: center; }
+.chart-container svg { max-width: 100%; height: auto; }
+
+.map-container { margin: 0.75rem 0; text-align: center; }
+.map-container img { max-width: 100%; height: auto; border-radius: 4px; border: 1px solid var(--color-border); }
+
+.appendix { margin-top: 2rem; }
+.appendix summary { cursor: pointer; font-weight: 600; color: var(--color-accent); padding: 0.5rem 0; }
+
+.methodology { color: var(--color-muted); font-size: 0.85rem; }
+
+.priorities-list { counter-reset: priority; list-style: none; padding: 0; }
+.priorities-list li { counter-increment: priority; margin-bottom: 0.75rem; padding-left: 2rem; position: relative; }
+.priorities-list li::before { content: counter(priority); position: absolute; left: 0; width: 1.5rem; height: 1.5rem; background: var(--color-accent); color: white; border-radius: 50%; text-align: center; line-height: 1.5rem; font-size: 0.8rem; font-weight: 600; }
+
+.finding-id { font-family: var(--font-mono); font-size: 0.8rem; color: var(--color-muted); }
+
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+
+@media print {
+  body { max-width: none; padding: 1rem; font-size: 10pt; }
+  h2 { page-break-after: avoid; }
+  .finding-card { break-inside: avoid; }
+  .section { break-inside: avoid; }
+  .appendix details { open: true; }
+}

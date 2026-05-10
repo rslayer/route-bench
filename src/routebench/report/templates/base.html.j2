@@ -1,1 +1,119 @@
-{# Base template for RouteBench reports #}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RouteBench Report — {{ fleet_metrics.total_routes }} Routes</title>
+  <style>{{ css }}</style>
+</head>
+<body>
+  <div class="header">
+    <h1>RouteBench Analysis Report</h1>
+    <p class="subtitle">
+      {{ fleet_metrics.total_routes }} routes · {{ fleet_metrics.total_stops }} stops ·
+      {{ "%.1f"|format(fleet_metrics.total_distance_miles) }} miles total
+    </p>
+  </div>
+
+  {% include "executive_summary.html.j2" %}
+
+  {# Fleet overview #}
+  <div class="section" id="fleet-overview">
+    <h2>Fleet Overview</h2>
+    {% if prose.get('fleet_overview_narrative') %}
+    <div class="prose">{{ prose['fleet_overview_narrative'] }}</div>
+    {% endif %}
+
+    <table class="metrics-table">
+      <thead>
+        <tr>
+          <th>Metric</th>
+          <th>Value</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Total Routes</td><td>{{ fleet_metrics.total_routes }}</td></tr>
+        <tr><td>Total Stops</td><td>{{ fleet_metrics.total_stops }}</td></tr>
+        <tr><td>Total Distance</td><td>{{ "%.1f"|format(fleet_metrics.total_distance_miles) }} mi</td></tr>
+        <tr><td>Total Time</td><td>{{ "%.1f"|format(fleet_metrics.total_time_hours) }} hr</td></tr>
+        <tr><td>Routes Over Shift Cap</td><td>{{ fleet_metrics.routes_over_shift_cap }}</td></tr>
+        {% if fleet_metrics.median_sequencing_index is not none %}
+        <tr><td>Median Sequencing Index</td><td>{{ "%.2f"|format(fleet_metrics.median_sequencing_index) }}</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+
+    {# Route metrics table #}
+    {% if route_metrics %}
+    <h3>Per-Route Metrics</h3>
+    <table class="metrics-table">
+      <thead>
+        <tr>
+          <th>Route</th>
+          <th>Stops</th>
+          <th>Distance (mi)</th>
+          <th>Time (hr)</th>
+          <th>Stops/hr</th>
+          <th>TW Violations</th>
+          <th>Shift Overrun (min)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rid, rm in route_metrics.items() %}
+        <tr>
+          <td>{{ rm.route_id }}</td>
+          <td>{{ rm.stop_count }}</td>
+          <td>{{ "%.1f"|format(rm.total_distance_miles) }}</td>
+          <td>{{ "%.1f"|format(rm.total_time_hours) }}</td>
+          <td>{{ "%.1f"|format(rm.stops_per_hour) }}</td>
+          <td>{{ rm.time_window_violations }}</td>
+          <td>{{ "%.0f"|format(rm.shift_overrun_minutes) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+
+    {# Charts #}
+    {% if charts.time_distribution %}
+    <div class="chart-container">{{ charts.time_distribution }}</div>
+    {% endif %}
+    {% if charts.sequencing_index %}
+    <div class="chart-container">{{ charts.sequencing_index }}</div>
+    {% endif %}
+    {% if charts.capacity_utilization %}
+    <div class="chart-container">{{ charts.capacity_utilization }}</div>
+    {% endif %}
+  </div>
+
+  {% include "per_route.html.j2" %}
+
+  {% include "cross_fleet.html.j2" %}
+
+  {% include "benchmark.html.j2" %}
+
+  {# Investigation priorities #}
+  <div class="section" id="investigation-priorities">
+    <h2>Investigation Priorities</h2>
+    {% if prose.get('investigation_priorities') %}
+    <div class="prose">{{ prose['investigation_priorities'] }}</div>
+    {% endif %}
+  </div>
+
+  {% include "methodology.html.j2" %}
+
+  {# Caveats #}
+  <div class="section" id="caveats">
+    <h2>Caveats</h2>
+    <div class="methodology">
+      <p>This analysis is based on planned route data and haversine distance estimates.
+      Actual road distances and drive times may vary. Time window compliance is assessed
+      against planned windows; real-world conditions (traffic, weather, access restrictions)
+      are not modeled.</p>
+      <p>Benchmark comparisons use OR-Tools with configurable time limits; solutions may
+      not be globally optimal. Sequencing improvements are theoretical and assume no
+      additional operational constraints beyond those specified in the input data.</p>
+    </div>
+  </div>
+</body>
+</html>
