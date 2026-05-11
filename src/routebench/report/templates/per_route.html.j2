@@ -1,1 +1,69 @@
 {# Per-route findings section #}
+<div class="section" id="per-route-findings">
+  <h2>Per-Route Findings</h2>
+
+  {% set severity_order = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3, 'info': 4} %}
+  {% set high_findings = findings | selectattr('severity', 'in', ['critical', 'high', 'medium']) | list %}
+  {% set low_findings = findings | selectattr('severity', 'in', ['low', 'info']) | list %}
+
+  {% for finding in high_findings %}
+  <div class="finding-card severity-{{ finding.severity }}">
+    <h3>
+      <span class="severity-badge {{ finding.severity }}">{{ finding.severity }}</span>
+      {{ finding.title }}
+    </h3>
+    <p class="finding-id">ID: {{ finding.finding_id }}</p>
+
+    {% set slot_key = 'finding_' ~ finding.finding_id %}
+    {% if prose.get(slot_key) %}
+    <div class="prose">{{ prose[slot_key] }}</div>
+    {% endif %}
+
+    {% if finding.evidence %}
+    <table class="metrics-table">
+      <thead><tr><th>Metric</th><th>Value</th><th>Comparison</th><th>Unit</th></tr></thead>
+      <tbody>
+        {% for ev in finding.evidence %}
+        <tr>
+          <td>{{ ev.metric_name }}</td>
+          <td>{{ "%.2f"|format(ev.actual_value) }}</td>
+          <td>{{ "%.2f"|format(ev.comparison_value) if ev.comparison_value is not none else "—" }} ({{ ev.comparison_type or "—" }})</td>
+          <td>{{ ev.unit }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+
+    {% if finding.references.route_ids %}
+    <p><strong>Routes:</strong> {{ finding.references.route_ids | join(', ') }}</p>
+    {% endif %}
+
+    {% set map_key = finding.finding_id %}
+    {% if maps.get(map_key) %}
+    <div class="map-container"><img src="{{ maps[map_key] }}" alt="Route map for {{ finding.title }}"></div>
+    {% endif %}
+  </div>
+  {% endfor %}
+
+  {% if low_findings %}
+  <div class="appendix">
+    <details>
+      <summary>{{ low_findings | length }} low-severity / informational findings</summary>
+      {% for finding in low_findings %}
+      <div class="finding-card severity-{{ finding.severity }}">
+        <h3>
+          <span class="severity-badge {{ finding.severity }}">{{ finding.severity }}</span>
+          {{ finding.title }}
+        </h3>
+        <p class="finding-id">ID: {{ finding.finding_id }}</p>
+        {% set slot_key = 'finding_' ~ finding.finding_id %}
+        {% if prose.get(slot_key) %}
+        <div class="prose">{{ prose[slot_key] }}</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </details>
+  </div>
+  {% endif %}
+</div>

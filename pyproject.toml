@@ -15,6 +15,7 @@ dependencies = [
     "jinja2",
     "weasyprint",
     "folium",
+    "staticmap",
     "altair",
     "vl-convert-python",
     "structlog",
@@ -64,6 +65,10 @@ warn_unused_configs = true
 mypy_path = "src"
 packages = ["routebench"]
 plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["weasyprint.*", "staticmap.*", "vl_convert.*"]
+ignore_missing_imports = true
 
 [tool.pydantic-mypy]
 init_forbid_extra = true

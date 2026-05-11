@@ -1,1 +1,7 @@
 {# Executive summary section #}
+<div class="section" id="executive-summary">
+  <h2>Executive Summary</h2>
+  {% if prose.get('executive_summary') %}
+  <div class="prose">{{ prose['executive_summary'] }}</div>
+  {% endif %}
+</div>

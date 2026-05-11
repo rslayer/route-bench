@@ -1,1 +1,35 @@
 {# Methodology section #}
+<div class="section" id="methodology">
+  <h2>Methodology</h2>
+  <div class="methodology">
+    <p><strong>Distance calculation:</strong> Haversine formula for straight-line distances between
+    consecutive stops. Road-network distances require an OSRM matrix provider.</p>
+
+    <p><strong>Sequencing analysis:</strong> Compares actual stop order against nearest-neighbor
+    heuristic. Routes with a sequencing index above the configured threshold are flagged.</p>
+
+    <p><strong>Time modeling:</strong> Includes pre-trip inspection, drive time (based on distance
+    and assumed speed), service time per stop, idle/wait time at time windows, lunch break
+    insertion after the configured threshold, and post-trip time.</p>
+
+    <p><strong>Benchmark optimization:</strong> Uses Google OR-Tools TSPTW solver for single-route
+    optimization and VRPTW solver for fleet-level optimization. Solutions are time-limited
+    and may not be globally optimal.</p>
+
+    <p><strong>Territory analysis:</strong> Detects geographic overlap between routes using convex
+    hull intersection and point-in-polygon tests. Depot stress measured via haversine distance.</p>
+
+    <p><strong>Findings classification:</strong> All findings are deterministic and reproducible.
+    Severity is assigned based on configurable thresholds. Finding IDs are computed via
+    SHA-256 hash of (category, references, evidence) for deduplication.</p>
+
+    {% if analyses_run %}
+    <p><strong>Analyses run:</strong> {{ analyses_run | join(', ') }}</p>
+    {% endif %}
+    {% if analyses_skipped %}
+    <p><strong>Analyses skipped:</strong>
+      {% for name, reason in analyses_skipped %}{{ name }} ({{ reason }}){% if not loop.last %}, {% endif %}{% endfor %}
+    </p>
+    {% endif %}
+  </div>
+</div>

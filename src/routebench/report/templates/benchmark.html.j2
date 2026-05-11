@@ -1,1 +1,51 @@
 {# Benchmark comparison section #}
+{% if benchmark %}
+<div class="section" id="benchmark-comparison">
+  <h2>Benchmark Comparison</h2>
+
+  {% if benchmark.per_route %}
+  <table class="metrics-table">
+    <thead>
+      <tr>
+        <th>Route</th>
+        <th>Actual Distance (mi)</th>
+        <th>Optimal Distance (mi)</th>
+        <th>Gap (%)</th>
+        <th>Actual Time (hr)</th>
+        <th>Optimal Time (hr)</th>
+        <th>Time Gap (%)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for rid, rb in benchmark.per_route.items() %}
+      <tr>
+        <td>{{ rb.route_id }}</td>
+        <td>{{ "%.1f"|format(rb.actual_distance_miles) }}</td>
+        <td>{{ "%.1f"|format(rb.optimal_distance_miles) }}</td>
+        <td>{{ "%.1f"|format(rb.distance_gap_pct) }}%</td>
+        <td>{{ "%.1f"|format(rb.actual_time_hours) }}</td>
+        <td>{{ "%.1f"|format(rb.optimal_time_hours) }}</td>
+        <td>{{ "%.1f"|format(rb.time_gap_pct) }}%</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if charts.benchmark_gap %}
+  <div class="chart-container">{{ charts.benchmark_gap }}</div>
+  {% endif %}
+
+  {% if benchmark.fleet_level %}
+  <h3>Fleet-Level Benchmark</h3>
+  <table class="metrics-table">
+    <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+    <tbody>
+      <tr><td>Actual Total Distance</td><td>{{ "%.1f"|format(benchmark.fleet_level.actual_total_distance) }} mi</td></tr>
+      <tr><td>Optimal Total Distance</td><td>{{ "%.1f"|format(benchmark.fleet_level.optimal_total_distance) }} mi</td></tr>
+      <tr><td>Stop Migrations</td><td>{{ benchmark.fleet_level.stop_migrations | length }}</td></tr>
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+{% endif %}
