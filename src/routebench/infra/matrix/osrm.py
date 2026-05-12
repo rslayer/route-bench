@@ -126,12 +126,8 @@ class OSRMMatrixProvider:
         distances: list[list[float]] = data["distances"]
 
         # Replace None values with infinity (OSRM returns null for unreachable)
-        durations = [
-            [float("inf") if v is None else float(v) for v in row] for row in durations
-        ]
-        distances = [
-            [float("inf") if v is None else float(v) for v in row] for row in distances
-        ]
+        durations = [[float("inf") if v is None else float(v) for v in row] for row in durations]
+        distances = [[float("inf") if v is None else float(v) for v in row] for row in distances]
 
         logger.info(
             "osrm_matrix_fetched",
@@ -157,20 +153,14 @@ class OSRMMatrixProvider:
 
         # Determine chunk sizes: keep destination chunks fixed, split origins
         chunk_size = max(1, int(math.sqrt(MAX_CELLS_PER_REQUEST)))
-        origin_chunks = [
-            origins[i : i + chunk_size] for i in range(0, n_origins, chunk_size)
-        ]
+        origin_chunks = [origins[i : i + chunk_size] for i in range(0, n_origins, chunk_size)]
         dest_chunks = [
             destinations[i : i + chunk_size] for i in range(0, n_destinations, chunk_size)
         ]
 
         # Initialize full result matrices
-        full_durations: list[list[float]] = [
-            [0.0] * n_destinations for _ in range(n_origins)
-        ]
-        full_distances: list[list[float]] = [
-            [0.0] * n_destinations for _ in range(n_origins)
-        ]
+        full_durations: list[list[float]] = [[0.0] * n_destinations for _ in range(n_origins)]
+        full_distances: list[list[float]] = [[0.0] * n_destinations for _ in range(n_origins)]
 
         origin_offset = 0
         for o_chunk in origin_chunks:

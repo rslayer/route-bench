@@ -6,9 +6,7 @@ from routebench.core.schemas import Route
 from routebench.infra.matrix.base import MatrixResult
 
 
-def compute_sequencing_index(
-    route: Route, matrix: MatrixResult
-) -> float | None:
+def compute_sequencing_index(route: Route, matrix: MatrixResult) -> float | None:
     """Compute the sequencing index for a single route.
 
     sequencing_index = actual_distance / nn_heuristic_distance.

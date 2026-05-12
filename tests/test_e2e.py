@@ -39,24 +39,28 @@ def _build_test_fleet() -> Fleet:
     for i in range(1, 4):
         stops = []
         for j in range(1, 6):
-            stops.append(Stop(
+            stops.append(
+                Stop(
+                    route_id=f"R-{i:03d}",
+                    stop_sequence=j,
+                    latitude=32.83 + j * 0.01,
+                    longitude=-96.77 + i * 0.01,
+                    service_time_minutes=5.0,
+                    demand_units=10.0,
+                    time_window_start=time(8 + j, 0),
+                    time_window_end=time(8 + j, 30),
+                )
+            )
+        routes.append(
+            Route(
                 route_id=f"R-{i:03d}",
-                stop_sequence=j,
-                latitude=32.83 + j * 0.01,
-                longitude=-96.77 + i * 0.01,
-                service_time_minutes=5.0,
-                demand_units=10.0,
-                time_window_start=time(8 + j, 0),
-                time_window_end=time(8 + j, 30),
-            ))
-        routes.append(Route(
-            route_id=f"R-{i:03d}",
-            stops=stops,
-            depot_lat=32.825,
-            depot_lon=-96.775,
-            planned_start_time=make_ts(8),
-            vehicle_capacity_units=100.0,
-        ))
+                stops=stops,
+                depot_lat=32.825,
+                depot_lon=-96.775,
+                planned_start_time=make_ts(8),
+                vehicle_capacity_units=100.0,
+            )
+        )
     return Fleet(routes=routes, upload_id="e2e-test", uploaded_at=make_ts())
 
 
@@ -73,37 +77,47 @@ class TestE2EPipeline:
 
         # Orchestrator: run sequencing, then done
         mock_client.generate.side_effect = [
-            _mock_llm_response(tool_calls=[{
-                "type": "tool_use",
-                "id": "call_1",
-                "name": "analyze_sequencing",
-                "input": {"tool_name": "analyze_sequencing"},
-            }]),
-            _mock_llm_response(tool_calls=[{
-                "type": "tool_use",
-                "id": "call_2",
-                "name": "analyze_time_pressure",
-                "input": {"tool_name": "analyze_time_pressure"},
-            }]),
-            _mock_llm_response(tool_calls=[{
-                "type": "tool_use",
-                "id": "call_3",
-                "name": "analysis_complete",
-                "input": {"summary": "Analysis done"},
-            }]),
+            _mock_llm_response(
+                tool_calls=[
+                    {
+                        "type": "tool_use",
+                        "id": "call_1",
+                        "name": "analyze_sequencing",
+                        "input": {"tool_name": "analyze_sequencing"},
+                    }
+                ]
+            ),
+            _mock_llm_response(
+                tool_calls=[
+                    {
+                        "type": "tool_use",
+                        "id": "call_2",
+                        "name": "analyze_time_pressure",
+                        "input": {"tool_name": "analyze_time_pressure"},
+                    }
+                ]
+            ),
+            _mock_llm_response(
+                tool_calls=[
+                    {
+                        "type": "tool_use",
+                        "id": "call_3",
+                        "name": "analysis_complete",
+                        "input": {"summary": "Analysis done"},
+                    }
+                ]
+            ),
         ]
 
         # Mock matrix provider returns realistic matrices
         mock_provider = MagicMock()
         mock_provider.name = "mock"
-        mock_provider.get_matrix.side_effect = lambda origins, dests: (
-            mock_matrix_realistic(len(origins))
+        mock_provider.get_matrix.side_effect = lambda origins, dests: mock_matrix_realistic(
+            len(origins)
         )
 
         with patch("routebench.agent.orchestrator.get_route_matrix") as mock_grm:
-            mock_grm.side_effect = lambda route, _prov: (
-                mock_matrix_realistic(len(route.stops) + 1)
-            )
+            mock_grm.side_effect = lambda route, _prov: mock_matrix_realistic(len(route.stops) + 1)
 
             orch = AnalysisOrchestrator(
                 client=mock_client,
@@ -142,13 +156,15 @@ class TestE2EPipeline:
 
         fleet = _build_test_fleet()
         mock_provider = MagicMock()
-        mock_provider.get_matrix.side_effect = lambda origins, dests: (
-            mock_matrix_realistic(len(origins))
+        mock_provider.get_matrix.side_effect = lambda origins, dests: mock_matrix_realistic(
+            len(origins)
         )
 
         config = AnalysisConfig()
         fleet_metrics, route_metrics = compute_scorecard(
-            fleet, mock_provider, config,
+            fleet,
+            mock_provider,
+            config,
         )
 
         assert fleet_metrics.total_routes == 3

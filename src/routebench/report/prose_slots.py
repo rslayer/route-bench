@@ -60,37 +60,35 @@ def identify_prose_slots(report: AnalysisReport) -> list[ProseSlot]:
     )
 
     # Executive summary (always)
-    slots.append(ProseSlot(
-        slot_id="executive_summary",
-        slot_type="executive_summary",
-        prompt_template="writer_executive_summary",
-        input_data={
-            "fleet_summary": fleet_summary,
-            "fleet_metrics": report.fleet_metrics.model_dump(),
-            "top_findings": [
-                f.model_dump() for f in top_findings[:5]
-            ],
-            "benchmark": (
-                report.benchmark.model_dump() if report.benchmark else None
-            ),
-        },
-        word_budget=200,
-        required_references=[f.finding_id for f in top_findings[:3]],
-    ))
+    slots.append(
+        ProseSlot(
+            slot_id="executive_summary",
+            slot_type="executive_summary",
+            prompt_template="writer_executive_summary",
+            input_data={
+                "fleet_summary": fleet_summary,
+                "fleet_metrics": report.fleet_metrics.model_dump(),
+                "top_findings": [f.model_dump() for f in top_findings[:5]],
+                "benchmark": (report.benchmark.model_dump() if report.benchmark else None),
+            },
+            word_budget=200,
+            required_references=[f.finding_id for f in top_findings[:3]],
+        )
+    )
 
     # Fleet overview narrative (always)
-    slots.append(ProseSlot(
-        slot_id="fleet_overview_narrative",
-        slot_type="fleet_overview_narrative",
-        prompt_template="writer_fleet_overview_narrative",
-        input_data={
-            "fleet_summary": fleet_summary,
-            "route_metrics": {
-                k: v.model_dump() for k, v in report.route_metrics.items()
+    slots.append(
+        ProseSlot(
+            slot_id="fleet_overview_narrative",
+            slot_type="fleet_overview_narrative",
+            prompt_template="writer_fleet_overview_narrative",
+            input_data={
+                "fleet_summary": fleet_summary,
+                "route_metrics": {k: v.model_dump() for k, v in report.route_metrics.items()},
             },
-        },
-        word_budget=150,
-    ))
+            word_budget=150,
+        )
+    )
 
     # Finding explanations (1 per finding, capped at top 15)
     for finding in top_findings[:_MAX_FINDING_EXPLANATIONS]:
@@ -99,58 +97,52 @@ def identify_prose_slots(report: AnalysisReport) -> list[ProseSlot]:
             if rid in report.route_metrics:
                 route_context[rid] = report.route_metrics[rid].model_dump()
 
-        slots.append(ProseSlot(
-            slot_id=f"finding_{finding.finding_id}",
-            slot_type="finding_explanation",
-            prompt_template="writer_finding_explanation",
-            input_data={
-                "finding": finding.model_dump(),
-                "route_context": route_context,
-            },
-            word_budget=150,
-            required_references=[finding.finding_id],
-        ))
+        slots.append(
+            ProseSlot(
+                slot_id=f"finding_{finding.finding_id}",
+                slot_type="finding_explanation",
+                prompt_template="writer_finding_explanation",
+                input_data={
+                    "finding": finding.model_dump(),
+                    "route_context": route_context,
+                },
+                word_budget=150,
+                required_references=[finding.finding_id],
+            )
+        )
 
     # Cross-fleet synthesis (only if multiple cross-fleet findings)
-    cross_fleet = [
-        f for f in report.findings
-        if len(f.references.route_ids) > 1
-    ]
+    cross_fleet = [f for f in report.findings if len(f.references.route_ids) > 1]
     if len(cross_fleet) >= 2:
-        slots.append(ProseSlot(
-            slot_id="cross_fleet_synthesis",
-            slot_type="cross_fleet_synthesis",
-            prompt_template="writer_cross_fleet_synthesis",
-            input_data={
-                "cross_fleet_findings": [
-                    f.model_dump() for f in cross_fleet
-                ],
-                "fleet_metrics": report.fleet_metrics.model_dump(),
-                "benchmark": (
-                    report.benchmark.model_dump()
-                    if report.benchmark else None
-                ),
-            },
-            word_budget=250,
-            required_references=[f.finding_id for f in cross_fleet[:5]],
-        ))
+        slots.append(
+            ProseSlot(
+                slot_id="cross_fleet_synthesis",
+                slot_type="cross_fleet_synthesis",
+                prompt_template="writer_cross_fleet_synthesis",
+                input_data={
+                    "cross_fleet_findings": [f.model_dump() for f in cross_fleet],
+                    "fleet_metrics": report.fleet_metrics.model_dump(),
+                    "benchmark": (report.benchmark.model_dump() if report.benchmark else None),
+                },
+                word_budget=250,
+                required_references=[f.finding_id for f in cross_fleet[:5]],
+            )
+        )
 
     # Investigation priorities (always)
-    slots.append(ProseSlot(
-        slot_id="investigation_priorities",
-        slot_type="investigation_priorities",
-        prompt_template="writer_investigation_priorities",
-        input_data={
-            "findings_by_severity": [
-                f.model_dump() for f in top_findings
-            ],
-            "fleet_metrics": report.fleet_metrics.model_dump(),
-            "benchmark": (
-                report.benchmark.model_dump() if report.benchmark else None
-            ),
-        },
-        word_budget=200,
-        required_references=[f.finding_id for f in top_findings[:3]],
-    ))
+    slots.append(
+        ProseSlot(
+            slot_id="investigation_priorities",
+            slot_type="investigation_priorities",
+            prompt_template="writer_investigation_priorities",
+            input_data={
+                "findings_by_severity": [f.model_dump() for f in top_findings],
+                "fleet_metrics": report.fleet_metrics.model_dump(),
+                "benchmark": (report.benchmark.model_dump() if report.benchmark else None),
+            },
+            word_budget=200,
+            required_references=[f.finding_id for f in top_findings[:3]],
+        )
+    )
 
     return slots

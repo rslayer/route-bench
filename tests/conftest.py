@@ -70,9 +70,7 @@ def make_fleet(*routes: Route, upload_id: str = "test") -> Fleet:
     )
 
 
-def mock_matrix(
-    n: int, distance_m: float = 5000.0, duration_s: float = 300.0
-) -> MatrixResult:
+def mock_matrix(n: int, distance_m: float = 5000.0, duration_s: float = 300.0) -> MatrixResult:
     """Create a uniform mock matrix of size n x n."""
     return MatrixResult(
         durations_seconds=[[duration_s] * n for _ in range(n)],

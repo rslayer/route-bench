@@ -58,7 +58,9 @@ def solve_vrptw(
     n_stops = len(all_stops)
     if n_stops == 0:
         return FleetSolution(
-            vehicle_routes=[], total_distance_meters=0.0, optimality_gap=0.0,
+            vehicle_routes=[],
+            total_distance_meters=0.0,
+            optimality_gap=0.0,
         )
 
     n_nodes = n_stops + 1  # depot + all stops

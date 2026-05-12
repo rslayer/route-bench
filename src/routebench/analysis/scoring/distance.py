@@ -8,9 +8,7 @@ from routebench.infra.matrix.base import MatrixProvider, MatrixResult
 METERS_PER_MILE = 1609.34
 
 
-def compute_distance_metrics(
-    route: Route, matrix: MatrixResult
-) -> dict[str, object]:
+def compute_distance_metrics(route: Route, matrix: MatrixResult) -> dict[str, object]:
     """Compute distance metrics for a single route.
 
     Expects `matrix` to be a square (n+1)x(n+1) matrix where index 0 is the
@@ -49,9 +47,7 @@ def compute_distance_metrics(
 
     # Average inter-stop distance (exclude depot legs)
     inter_stop_legs = leg_distances_miles[1:-1] if n_stops > 1 else []
-    avg_inter_stop = (
-        sum(inter_stop_legs) / len(inter_stop_legs) if inter_stop_legs else 0.0
-    )
+    avg_inter_stop = sum(inter_stop_legs) / len(inter_stop_legs) if inter_stop_legs else 0.0
 
     return {
         "total_distance_miles": total_distance_miles,
@@ -60,9 +56,7 @@ def compute_distance_metrics(
     }
 
 
-def get_route_matrix(
-    route: Route, matrix_provider: MatrixProvider
-) -> MatrixResult:
+def get_route_matrix(route: Route, matrix_provider: MatrixProvider) -> MatrixResult:
     """Build coordinate list and query the matrix provider for a route.
 
     Returns a square (n+1)x(n+1) matrix where:

@@ -32,16 +32,8 @@ def compute_route_benchmark(
     optimal_dist = optimal.total_distance_meters
     optimal_time = optimal.total_time_seconds
 
-    dist_gap = (
-        (actual_dist - optimal_dist) / actual_dist * 100
-        if actual_dist > 0
-        else 0.0
-    )
-    time_gap = (
-        (actual_time - optimal_time) / actual_time * 100
-        if actual_time > 0
-        else 0.0
-    )
+    dist_gap = (actual_dist - optimal_dist) / actual_dist * 100 if actual_dist > 0 else 0.0
+    time_gap = (actual_time - optimal_time) / actual_time * 100 if actual_time > 0 else 0.0
 
     return RouteBenchmark(
         route_id=route.route_id,

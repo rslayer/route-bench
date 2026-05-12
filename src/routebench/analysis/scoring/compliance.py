@@ -22,10 +22,7 @@ def compute_compliance_metrics(
     # Count time window violations
     violations = 0
     for stop in route.stops:
-        if (
-            stop.time_window_end is not None
-            and stop.planned_arrival_time is not None
-        ):
+        if stop.time_window_end is not None and stop.planned_arrival_time is not None:
             arrival_time = stop.planned_arrival_time.time()
             if arrival_time > stop.time_window_end:
                 violations += 1

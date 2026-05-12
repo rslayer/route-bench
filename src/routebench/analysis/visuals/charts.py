@@ -57,7 +57,8 @@ def sequencing_index_distribution(
             y=alt.Y("sequencing_index:Q", title="Sequencing Index"),
         )
         .properties(
-            width=500, height=250,
+            width=500,
+            height=250,
             title="Sequencing Index by Route",
         )
     )
@@ -99,7 +100,9 @@ def time_distribution(
     )
 
     chart = (bars + rule).properties(
-        width=500, height=250, title="Total Time by Route",
+        width=500,
+        height=250,
+        title="Total Time by Route",
     )
     return _render_svg(chart)
 
@@ -113,11 +116,13 @@ def capacity_utilization_chart(
         cap = _get_val(rm, "capacity_utilization", {})
         if isinstance(cap, dict):
             for dim, val in cap.items():
-                data.append({
-                    "route_id": rid,
-                    "dimension": dim,
-                    "utilization": val * 100,
-                })
+                data.append(
+                    {
+                        "route_id": rid,
+                        "dimension": dim,
+                        "utilization": val * 100,
+                    }
+                )
 
     if not data:
         return ""
@@ -131,7 +136,8 @@ def capacity_utilization_chart(
             color=alt.Color("dimension:N", title="Dimension"),
         )
         .properties(
-            width=500, height=250,
+            width=500,
+            height=250,
             title="Capacity Utilization by Route",
         )
     )
@@ -167,7 +173,8 @@ def benchmark_gap_chart(
             y=alt.Y("distance_gap_pct:Q", title="Distance Gap (%)"),
         )
         .properties(
-            width=500, height=250,
+            width=500,
+            height=250,
             title="Benchmark Distance Gap by Route",
         )
     )

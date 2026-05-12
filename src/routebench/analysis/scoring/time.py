@@ -45,9 +45,7 @@ def compute_time_metrics(
             "service_time_hours": 0.0,
             "idle_time_hours": 0.0,
             "total_time_hours": pre_post,
-            "shift_overrun_minutes": max(
-                0.0, pre_post * 60.0 - work_rules.max_shift_hours * 60.0
-            ),
+            "shift_overrun_minutes": max(0.0, pre_post * 60.0 - work_rules.max_shift_hours * 60.0),
             "leg_durations_seconds": [],
             "time_window_violations": 0,
         }
@@ -144,9 +142,7 @@ def compute_time_metrics(
     service_time_hours = service_time_seconds / 3600.0
     idle_time_hours = idle_time_seconds / 3600.0
 
-    shift_overrun_minutes = max(
-        0.0, (total_time_hours - work_rules.max_shift_hours) * 60.0
-    )
+    shift_overrun_minutes = max(0.0, (total_time_hours - work_rules.max_shift_hours) * 60.0)
 
     return {
         "drive_time_hours": drive_time_hours,

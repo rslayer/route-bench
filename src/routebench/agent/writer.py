@@ -42,10 +42,7 @@ class ReportWriter:
         results: dict[str, str] = {}
 
         with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
-            futures = {
-                executor.submit(self._fill_one_slot, slot): slot.slot_id
-                for slot in slots
-            }
+            futures = {executor.submit(self._fill_one_slot, slot): slot.slot_id for slot in slots}
             for future in futures:
                 slot_id = futures[future]
                 try:

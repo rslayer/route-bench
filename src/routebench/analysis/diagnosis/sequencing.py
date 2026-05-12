@@ -69,9 +69,7 @@ class SequencingAnalysis:
 
             # Build hypothesis
             if crossings:
-                hypothesis = (
-                    "Geographic crossing suggests sub-optimal sequencing"
-                )
+                hypothesis = "Geographic crossing suggests sub-optimal sequencing"
             else:
                 hypothesis = "Sequencing inefficiency"
 
@@ -109,18 +107,14 @@ class SequencingAnalysis:
                         stop_sequences=stop_refs,
                     ),
                     hypothesis=hypothesis,
-                    suggested_investigation=(
-                        "Review stop ordering for potential resequencing"
-                    ),
+                    suggested_investigation=("Review stop ordering for potential resequencing"),
                 )
             )
 
         return findings
 
 
-def _nearest_neighbor_distance(
-    distances: object, n_stops: int
-) -> float:
+def _nearest_neighbor_distance(distances: object, n_stops: int) -> float:
     """Compute nearest-neighbor heuristic tour distance.
 
     Starts at depot (index 0), greedily visits nearest unvisited stop,
@@ -151,9 +145,7 @@ def _nearest_neighbor_distance(
     return total
 
 
-def _find_worst_leg(
-    distances: object, n_stops: int
-) -> tuple[int | None, float]:
+def _find_worst_leg(distances: object, n_stops: int) -> tuple[int | None, float]:
     """Find the leg with largest deviation from a direct path."""
     import numpy as np
 
@@ -206,9 +198,7 @@ def _detect_crossings(
                 continue  # adjacent legs share depot
             a1, a2 = legs[i]
             b1, b2 = legs[j]
-            if _segments_intersect(
-                coords[a1], coords[a2], coords[b1], coords[b2]
-            ):
+            if _segments_intersect(coords[a1], coords[a2], coords[b1], coords[b2]):
                 crossings.append((i, j))
 
     return crossings

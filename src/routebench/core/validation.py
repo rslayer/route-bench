@@ -222,9 +222,7 @@ def validate_csv(
     if "service_time_minutes" in df.columns:
         null_count = df.filter(pl.col("service_time_minutes").is_null()).height
         if null_count > 0:
-            df = df.with_columns(
-                pl.col("service_time_minutes").fill_null(service_time_default)
-            )
+            df = df.with_columns(pl.col("service_time_minutes").fill_null(service_time_default))
             defaults_applied.append(
                 DefaultApplied(
                     field="service_time_minutes",
@@ -277,9 +275,7 @@ def validate_csv(
         )
 
     # planned_start_time default: 8:00 AM today
-    default_start = datetime.now(tz=UTC).replace(
-        hour=8, minute=0, second=0, microsecond=0
-    )
+    default_start = datetime.now(tz=UTC).replace(hour=8, minute=0, second=0, microsecond=0)
     if "planned_start_time" not in df.columns:
         df = df.with_columns(pl.lit(default_start.isoformat()).alias("planned_start_time"))
         defaults_applied.append(
@@ -365,9 +361,7 @@ def validate_csv(
                     row=None,
                     column="stop_sequence",
                     code="NON_CONTIGUOUS_SEQUENCE",
-                    message=(
-                        f"Route '{route_id}' has non-contiguous stop_sequence: {sequences}"
-                    ),
+                    message=(f"Route '{route_id}' has non-contiguous stop_sequence: {sequences}"),
                 )
             )
             continue

@@ -45,15 +45,9 @@ class TerritoryAnalysis:
         for route in fleet.routes:
             if not route.stops:
                 continue
-            centroid_lat = sum(s.latitude for s in route.stops) / len(
-                route.stops
-            )
-            centroid_lon = sum(s.longitude for s in route.stops) / len(
-                route.stops
-            )
-            dist = _haversine_miles(
-                route.depot_lat, route.depot_lon, centroid_lat, centroid_lon
-            )
+            centroid_lat = sum(s.latitude for s in route.stops) / len(route.stops)
+            centroid_lon = sum(s.longitude for s in route.stops) / len(route.stops)
+            dist = _haversine_miles(route.depot_lat, route.depot_lon, centroid_lat, centroid_lon)
             depot_distances.append(dist)
 
         if depot_distances:
@@ -81,12 +75,10 @@ class TerritoryAnalysis:
                             route_ids=[r.route_id for r in fleet.routes],
                         ),
                         hypothesis=(
-                            "Depot location may not be optimal for the "
-                            "current route distribution"
+                            "Depot location may not be optimal for the current route distribution"
                         ),
                         suggested_investigation=(
-                            "Evaluate depot placement relative to "
-                            "delivery clusters"
+                            "Evaluate depot placement relative to delivery clusters"
                         ),
                     )
                 )
@@ -111,25 +103,17 @@ class TerritoryAnalysis:
                 checked.add(pair)
 
                 # Find the routes
-                route_a = next(
-                    r for r in fleet.routes if r.route_id == rid_a
-                )
-                route_b = next(
-                    r for r in fleet.routes if r.route_id == rid_b
-                )
+                route_a = next(r for r in fleet.routes if r.route_id == rid_a)
+                route_b = next(r for r in fleet.routes if r.route_id == rid_b)
 
                 # Fraction of A's stops inside B's hull
                 a_in_b = sum(
-                    1
-                    for s in route_a.stops
-                    if _point_in_polygon((s.latitude, s.longitude), hull_b)
+                    1 for s in route_a.stops if _point_in_polygon((s.latitude, s.longitude), hull_b)
                 ) / max(len(route_a.stops), 1)
 
                 # Fraction of B's stops inside A's hull
                 b_in_a = sum(
-                    1
-                    for s in route_b.stops
-                    if _point_in_polygon((s.latitude, s.longitude), hull_a)
+                    1 for s in route_b.stops if _point_in_polygon((s.latitude, s.longitude), hull_a)
                 ) / max(len(route_b.stops), 1)
 
                 if a_in_b > 0.20 or b_in_a > 0.20:
@@ -140,8 +124,7 @@ class TerritoryAnalysis:
                             severity="medium",
                             confidence=0.75,
                             title=(
-                                f"Routes {rid_a} and {rid_b}: "
-                                f"{overlap_pct:.0f}% geographic overlap"
+                                f"Routes {rid_a} and {rid_b}: {overlap_pct:.0f}% geographic overlap"
                             ),
                             evidence=[
                                 FindingEvidence(
@@ -156,12 +139,10 @@ class TerritoryAnalysis:
                                 route_ids=[rid_a, rid_b],
                             ),
                             hypothesis=(
-                                "Territory misalignment: routes serve "
-                                "overlapping geographic areas"
+                                "Territory misalignment: routes serve overlapping geographic areas"
                             ),
                             suggested_investigation=(
-                                "Consider territory re-balancing to "
-                                "reduce overlap"
+                                "Consider territory re-balancing to reduce overlap"
                             ),
                         )
                     )
@@ -169,17 +150,12 @@ class TerritoryAnalysis:
         return findings
 
 
-def _haversine_miles(
-    lat1: float, lon1: float, lat2: float, lon2: float
-) -> float:
+def _haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Haversine distance between two lat/lon points in miles."""
     lat1_r, lat2_r = math.radians(lat1), math.radians(lat2)
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
-    a = (
-        math.sin(dlat / 2) ** 2
-        + math.cos(lat1_r) * math.cos(lat2_r) * math.sin(dlon / 2) ** 2
-    )
+    a = math.sin(dlat / 2) ** 2 + math.cos(lat1_r) * math.cos(lat2_r) * math.sin(dlon / 2) ** 2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return EARTH_RADIUS_MILES * c
 
@@ -227,9 +203,7 @@ def _point_in_polygon(
     for i in range(n):
         xi, yi = polygon[i]
         xj, yj = polygon[j]
-        if ((yi > y) != (yj > y)) and (
-            x < (xj - xi) * (y - yi) / (yj - yi) + xi
-        ):
+        if ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / (yj - yi) + xi):
             inside = not inside
         j = i
 

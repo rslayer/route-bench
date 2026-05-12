@@ -82,9 +82,7 @@ def compute_scorecard(
         util_metrics = compute_utilization_metrics(route)
 
         # Compliance metrics
-        compliance_metrics = compute_compliance_metrics(
-            route, time_metrics, work_rules
-        )
+        compliance_metrics = compute_compliance_metrics(route, time_metrics, work_rules)
 
         # Sequencing index
         seq_index = compute_sequencing_index(route, matrix)
@@ -135,9 +133,7 @@ def compute_scorecard(
     for dim, vals in all_utilizations.items():
         avg_utilization[dim] = sum(vals) / len(vals) if vals else 0.0
 
-    median_seq = (
-        statistics.median(sequencing_indices) if sequencing_indices else None
-    )
+    median_seq = statistics.median(sequencing_indices) if sequencing_indices else None
 
     fleet_metrics = FleetMetrics(
         total_routes=len(fleet.routes),

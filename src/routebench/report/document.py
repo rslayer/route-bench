@@ -52,12 +52,10 @@ class ReportDocument:
 
         # Build chart SVGs
         route_metrics_dict: dict[str, Any] = {
-            rid: rm.model_dump()
-            for rid, rm in self._analysis.route_metrics.items()
+            rid: rm.model_dump() for rid, rm in self._analysis.route_metrics.items()
         }
         benchmark_dict: dict[str, Any] | None = (
-            self._analysis.benchmark.model_dump()
-            if self._analysis.benchmark else None
+            self._analysis.benchmark.model_dump() if self._analysis.benchmark else None
         )
 
         charts = {
@@ -69,7 +67,11 @@ class ReportDocument:
 
         # Sort findings by severity for template
         severity_order = {
-            "critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4,
+            "critical": 0,
+            "high": 1,
+            "medium": 2,
+            "low": 3,
+            "info": 4,
         }
         sorted_findings = sorted(
             self._analysis.findings,
@@ -96,7 +98,8 @@ class ReportDocument:
         return html
 
     def _build_finding_maps(
-        self, findings: list[Any],
+        self,
+        findings: list[Any],
     ) -> dict[str, str]:
         """Render route maps for findings with route references."""
         maps: dict[str, str] = {}

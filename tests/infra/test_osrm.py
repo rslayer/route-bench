@@ -21,12 +21,10 @@ def _make_osrm_response(
     return {
         "code": "Ok",
         "durations": [
-            [base_duration * (i + j + 1) for j in range(n_destinations)]
-            for i in range(n_origins)
+            [base_duration * (i + j + 1) for j in range(n_destinations)] for i in range(n_origins)
         ],
         "distances": [
-            [base_distance * (i + j + 1) for j in range(n_destinations)]
-            for i in range(n_origins)
+            [base_distance * (i + j + 1) for j in range(n_destinations)] for i in range(n_origins)
         ],
     }
 
@@ -153,12 +151,10 @@ def _make_mock_result(n_origins: int, n_destinations: int) -> Any:
 
     return MatrixResult(
         durations_seconds=[
-            [100.0 * (i + j + 1) for j in range(n_destinations)]
-            for i in range(n_origins)
+            [100.0 * (i + j + 1) for j in range(n_destinations)] for i in range(n_origins)
         ],
         distances_meters=[
-            [5000.0 * (i + j + 1) for j in range(n_destinations)]
-            for i in range(n_origins)
+            [5000.0 * (i + j + 1) for j in range(n_destinations)] for i in range(n_origins)
         ],
         provider="osrm",
         cached=False,

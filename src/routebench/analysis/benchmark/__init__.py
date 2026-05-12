@@ -158,9 +158,7 @@ class FleetBenchmarkTool:
                         ),
                     ),
                     hypothesis="Some stops are assigned to non-optimal routes",
-                    suggested_investigation=(
-                        "Review stop migrations for territory re-balancing"
-                    ),
+                    suggested_investigation=("Review stop migrations for territory re-balancing"),
                 )
             )
 

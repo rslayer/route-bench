@@ -21,9 +21,7 @@ def _ts(hour: int = 8, minute: int = 0) -> datetime:
     return datetime(2025, 1, 15, hour, minute, 0, tzinfo=UTC)
 
 
-def _make_stop(
-    route_id: str, seq: int, lat: float, lon: float, svc: float = 5.0
-) -> Stop:
+def _make_stop(route_id: str, seq: int, lat: float, lon: float, svc: float = 5.0) -> Stop:
     return Stop(
         route_id=route_id,
         stop_sequence=seq,
@@ -90,9 +88,7 @@ class TestSequencingAnalysis:
 
     def test_always_applicable(self) -> None:
         tool = SequencingAnalysis()
-        fleet = _make_fleet(
-            _make_route("R1", [_make_stop("R1", 1, 32.83, -96.77)])
-        )
+        fleet = _make_fleet(_make_route("R1", [_make_stop("R1", 1, 32.83, -96.77)]))
         assert tool.applicability_check(fleet).is_applicable
 
     def test_flags_zigzag_route(self) -> None:
@@ -257,9 +253,7 @@ class TestOutlierAnalysis:
         findings = tool.run(fleet, matrices={"R1": matrix})
         assert len(findings) >= 1
         assert findings[0].category == "outlier"
-        assert any(
-            (route.route_id, 5) in f.references.stop_sequences for f in findings
-        )
+        assert any((route.route_id, 5) in f.references.stop_sequences for f in findings)
 
     def test_no_outlier_in_uniform(self) -> None:
         """Uniformly spaced stops should not flag outliers."""
@@ -306,9 +300,7 @@ class TestTerritoryAnalysis:
         )
 
         findings = tool.run(fleet)
-        overlap_findings = [
-            f for f in findings if "overlap" in f.title.lower()
-        ]
+        overlap_findings = [f for f in findings if "overlap" in f.title.lower()]
         assert len(overlap_findings) >= 1
 
     def test_no_overlap_distant_routes(self) -> None:
@@ -333,9 +325,7 @@ class TestTerritoryAnalysis:
         )
 
         findings = tool.run(fleet)
-        overlap_findings = [
-            f for f in findings if "overlap" in f.title.lower()
-        ]
+        overlap_findings = [f for f in findings if "overlap" in f.title.lower()]
         assert len(overlap_findings) == 0
 
     def test_flags_depot_stress(self) -> None:
@@ -360,9 +350,7 @@ class TestTerritoryAnalysis:
         )
 
         findings = tool.run(fleet)
-        depot_findings = [
-            f for f in findings if "depot stress" in f.title.lower()
-        ]
+        depot_findings = [f for f in findings if "depot stress" in f.title.lower()]
         assert len(depot_findings) == 1
 
 
@@ -382,9 +370,7 @@ class TestDispatchAnalysis:
         routes = []
         for i in range(5):
             stops = [_make_stop(f"R{i}", 1, 32.83 + i * 0.01, -96.77)]
-            routes.append(
-                _make_route(f"R{i}", stops, start_time=_ts(8, 0))
-            )
+            routes.append(_make_route(f"R{i}", stops, start_time=_ts(8, 0)))
 
         fleet = _make_fleet(*routes)
         findings = tool.run(fleet)
@@ -398,9 +384,7 @@ class TestDispatchAnalysis:
         routes = []
         for i in range(5):
             stops = [_make_stop(f"R{i}", 1, 32.83 + i * 0.01, -96.77)]
-            routes.append(
-                _make_route(f"R{i}", stops, start_time=_ts(6 + i, 0))
-            )
+            routes.append(_make_route(f"R{i}", stops, start_time=_ts(6 + i, 0)))
 
         fleet = _make_fleet(*routes)
         findings = tool.run(fleet)

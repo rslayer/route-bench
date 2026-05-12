@@ -44,9 +44,13 @@ def render_route_map(
             return ""
 
         # Add depot marker (red)
-        m.add_marker(CircleMarker(
-            (depot_lon, depot_lat), "red", 8,
-        ))
+        m.add_marker(
+            CircleMarker(
+                (depot_lon, depot_lat),
+                "red",
+                8,
+            )
+        )
 
         # Build route line
         coords: list[tuple[float, float]] = [(depot_lon, depot_lat)]

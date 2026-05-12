@@ -100,12 +100,14 @@ class LLMClient:
                     if block.type == "text":
                         content.append({"type": "text", "text": block.text})
                     elif block.type == "tool_use":
-                        content.append({
-                            "type": "tool_use",
-                            "id": block.id,
-                            "name": block.name,
-                            "input": block.input,
-                        })
+                        content.append(
+                            {
+                                "type": "tool_use",
+                                "id": block.id,
+                                "name": block.name,
+                                "input": block.input,
+                            }
+                        )
 
                 result = LLMResponse(
                     content=content,
@@ -130,7 +132,7 @@ class LLMClient:
             except anthropic.APIStatusError as e:
                 last_error = e
                 if e.status_code in _RETRYABLE_STATUS and attempt < _MAX_RETRIES:
-                    wait = 2 ** attempt
+                    wait = 2**attempt
                     logger.warning(
                         "llm_retryable_error",
                         status=e.status_code,

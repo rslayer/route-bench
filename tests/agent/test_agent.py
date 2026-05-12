@@ -86,10 +86,7 @@ def _make_report(
     n_findings: int = 3,
 ) -> AnalysisReport:
     fleet = fleet or _make_fleet()
-    findings = [
-        _make_finding(f"R-{i:03d}", gap=25.0 - i * 5)
-        for i in range(1, n_findings + 1)
-    ]
+    findings = [_make_finding(f"R-{i:03d}", gap=25.0 - i * 5) for i in range(1, n_findings + 1)]
     route_metrics = {
         r.route_id: RouteMetrics(
             route_id=r.route_id,
@@ -185,12 +182,14 @@ class TestOrchestrator:
         mock_client._model = "claude-sonnet-4-7"
         # LLM signals completion on first call
         mock_client.generate.return_value = _mock_llm_response(
-            tool_calls=[{
-                "type": "tool_use",
-                "id": "call_1",
-                "name": "analysis_complete",
-                "input": {"summary": "Single route analyzed"},
-            }],
+            tool_calls=[
+                {
+                    "type": "tool_use",
+                    "id": "call_1",
+                    "name": "analysis_complete",
+                    "input": {"summary": "Single route analyzed"},
+                }
+            ],
         )
 
         mock_provider = MagicMock()
@@ -203,8 +202,10 @@ class TestOrchestrator:
         ):
             mock_sc.return_value = (
                 FleetMetrics(
-                    total_routes=1, total_stops=5,
-                    total_distance_miles=20.0, total_time_hours=4.0,
+                    total_routes=1,
+                    total_stops=5,
+                    total_distance_miles=20.0,
+                    total_time_hours=4.0,
                     routes_over_shift_cap=0,
                 ),
                 {
@@ -246,20 +247,24 @@ class TestOrchestrator:
         # Second call: LLM signals done
         mock_client.generate.side_effect = [
             _mock_llm_response(
-                tool_calls=[{
-                    "type": "tool_use",
-                    "id": "call_1",
-                    "name": "analyze_sequencing",
-                    "input": {"tool_name": "analyze_sequencing"},
-                }],
+                tool_calls=[
+                    {
+                        "type": "tool_use",
+                        "id": "call_1",
+                        "name": "analyze_sequencing",
+                        "input": {"tool_name": "analyze_sequencing"},
+                    }
+                ],
             ),
             _mock_llm_response(
-                tool_calls=[{
-                    "type": "tool_use",
-                    "id": "call_2",
-                    "name": "analysis_complete",
-                    "input": {"summary": "Sequencing analyzed"},
-                }],
+                tool_calls=[
+                    {
+                        "type": "tool_use",
+                        "id": "call_2",
+                        "name": "analysis_complete",
+                        "input": {"summary": "Sequencing analyzed"},
+                    }
+                ],
             ),
         ]
 
@@ -272,8 +277,10 @@ class TestOrchestrator:
         ):
             mock_sc.return_value = (
                 FleetMetrics(
-                    total_routes=3, total_stops=15,
-                    total_distance_miles=60.0, total_time_hours=12.0,
+                    total_routes=3,
+                    total_stops=15,
+                    total_distance_miles=60.0,
+                    total_time_hours=12.0,
                     routes_over_shift_cap=0,
                 ),
                 {
@@ -366,9 +373,7 @@ class TestVerifier:
                     "finding_id": "abc12345",
                     "category": "sequencing",
                     "severity": "high",
-                    "evidence": [
-                        {"metric_name": "distance_gap_pct", "actual_value": 25.3}
-                    ],
+                    "evidence": [{"metric_name": "distance_gap_pct", "actual_value": 25.3}],
                     "references": {"route_ids": ["R-001"]},
                 },
             },
@@ -393,9 +398,7 @@ class TestVerifier:
                     "finding_id": "abc12345",
                     "category": "sequencing",
                     "severity": "high",
-                    "evidence": [
-                        {"metric_name": "distance_gap_pct", "actual_value": 25.3}
-                    ],
+                    "evidence": [{"metric_name": "distance_gap_pct", "actual_value": 25.3}],
                     "references": {"route_ids": ["R-001"]},
                 },
             },
@@ -467,7 +470,9 @@ class TestVerifier:
 
         verifier = Verifier(client=None, use_llm_judge=False)
         final_prose, results = verifier.verify_and_regenerate(
-            {"test_slot": bad_prose}, [slot], bad_writer,
+            {"test_slot": bad_prose},
+            [slot],
+            bad_writer,
         )
 
         # Should have used deterministic fallback
