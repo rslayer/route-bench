@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import jinja2
+import structlog
 
 from routebench.analysis.visuals.charts import (
     benchmark_gap_chart,
@@ -13,8 +14,11 @@ from routebench.analysis.visuals.charts import (
     sequencing_index_distribution,
     time_distribution,
 )
+from routebench.analysis.visuals.maps import render_route_map
 from routebench.core.findings import AnalysisReport
 from routebench.report.prose_slots import ProseSlot, identify_prose_slots
+
+logger: structlog.stdlib.BoundLogger = structlog.get_logger()
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 _STATIC_DIR = Path(__file__).parent / "static"
@@ -72,6 +76,9 @@ class ReportDocument:
             key=lambda f: severity_order.get(f.severity, 4),
         )
 
+        # Build route maps for findings
+        maps = self._build_finding_maps(sorted_findings)
+
         template = self._env.get_template("base.html.j2")
         html = template.render(
             fleet_metrics=self._analysis.fleet_metrics,
@@ -80,10 +87,48 @@ class ReportDocument:
             benchmark=self._analysis.benchmark,
             prose=prose,
             charts=charts,
-            maps={},
+            maps=maps,
             analyses_run=self._analysis.analyses_run,
             analyses_skipped=self._analysis.analyses_skipped,
             metadata=self._analysis.metadata,
             css=css,
         )
         return html
+
+    def _build_finding_maps(
+        self, findings: list[Any],
+    ) -> dict[str, str]:
+        """Render route maps for findings with route references."""
+        maps: dict[str, str] = {}
+        fleet = self._analysis.fleet
+        route_map = {r.route_id: r for r in fleet.routes}
+
+        for finding in findings:
+            if finding.severity not in ("critical", "high", "medium"):
+                continue
+            for rid in finding.references.route_ids:
+                route = route_map.get(rid)
+                if route is None:
+                    continue
+                route_data: dict[str, Any] = {
+                    "depot_lat": route.depot_lat,
+                    "depot_lon": route.depot_lon,
+                    "stops": [
+                        {
+                            "latitude": s.latitude,
+                            "longitude": s.longitude,
+                            "stop_sequence": s.stop_sequence,
+                        }
+                        for s in route.stops
+                    ],
+                }
+                flagged = [
+                    {"stop_sequence": seq}
+                    for _rid, seq in finding.references.stop_sequences
+                    if _rid == rid
+                ]
+                img = render_route_map(route_data, flagged or None)
+                if img:
+                    maps[finding.finding_id] = img
+                    break  # one map per finding
+        return maps

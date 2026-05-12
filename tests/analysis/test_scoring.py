@@ -5,7 +5,7 @@ Uses hand-constructed routes with mock matrix providers.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from hypothesis import given, settings
@@ -61,7 +61,7 @@ def _make_route(
         stops=stops,
         depot_lat=depot_lat,
         depot_lon=depot_lon,
-        planned_start_time=datetime(2025, 1, 15, 8, 0, 0, tzinfo=timezone.utc),
+        planned_start_time=datetime(2025, 1, 15, 8, 0, 0, tzinfo=UTC),
         vehicle_capacity_units=capacity_units,
     )
 
@@ -230,7 +230,7 @@ class TestComputeScorecard:
         fleet = Fleet(
             routes=[route1, route2],
             upload_id="test",
-            uploaded_at=datetime(2025, 1, 15, tzinfo=timezone.utc),
+            uploaded_at=datetime(2025, 1, 15, tzinfo=UTC),
         )
 
         fm, rm = compute_scorecard(fleet, MockMatrixProvider(), AnalysisConfig())  # type: ignore[arg-type]

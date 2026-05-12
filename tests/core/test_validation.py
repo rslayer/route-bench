@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import csv
-import tempfile
 from pathlib import Path
 
 import pytest
 
-from routebench.core.config import AnalysisConfig
 from routebench.core.validation import validate_csv
 
 
@@ -95,7 +93,7 @@ class TestValidCSV:
         rows = _minimal_rows(depot_lat=30.25, depot_lon=-97.75)
         csv_path = _write_csv(rows, tmp_path / "depot.csv")
 
-        fleet, report = validate_csv(csv_path)
+        fleet, _report = validate_csv(csv_path)
 
         assert fleet is not None
         route = fleet.routes[0]
@@ -110,7 +108,7 @@ class TestValidCSV:
         rows = _minimal_rows("R001", 5)
         csv_path = _write_csv(rows, tmp_path / "count.csv")
 
-        fleet, report = validate_csv(csv_path)
+        fleet, _report = validate_csv(csv_path)
 
         assert fleet is not None
         assert fleet.total_stops() == 5
@@ -170,7 +168,7 @@ class TestOutOfRange:
         rows[1]["longitude"] = 0.0
         csv_path = _write_csv(rows, tmp_path / "zero.csv")
 
-        fleet, report = validate_csv(csv_path)
+        _fleet, report = validate_csv(csv_path)
 
         assert report.is_valid is False
         codes = [e.code for e in report.errors]

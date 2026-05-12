@@ -82,7 +82,7 @@ def identify_prose_slots(report: AnalysisReport) -> list[ProseSlot]:
     slots.append(ProseSlot(
         slot_id="fleet_overview_narrative",
         slot_type="fleet_overview_narrative",
-        prompt_template="writer_executive_summary",
+        prompt_template="writer_fleet_overview_narrative",
         input_data={
             "fleet_summary": fleet_summary,
             "route_metrics": {

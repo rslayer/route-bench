@@ -10,6 +10,7 @@ import structlog
 from routebench.agent.client import LLMClient
 from routebench.agent.tool_specs import build_tool_specs
 from routebench.analysis.scoring import compute_scorecard
+from routebench.analysis.scoring.distance import get_route_matrix
 from routebench.analysis.tools import TOOLS, AnalysisTool
 from routebench.core.config import AnalysisConfig
 from routebench.core.findings import (
@@ -19,7 +20,8 @@ from routebench.core.findings import (
     RouteMetrics,
 )
 from routebench.core.schemas import Fleet
-from routebench.infra.matrix.base import MatrixProvider
+from routebench.infra.matrix.base import MatrixProvider, MatrixResult
+from routebench.infra.telemetry import Telemetry
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger()
 
@@ -72,10 +74,12 @@ class AnalysisOrchestrator:
         client: LLMClient,
         config: AnalysisConfig | None = None,
         matrix_provider: MatrixProvider | None = None,
+        telemetry: Telemetry | None = None,
     ) -> None:
         self._client = client
         self._config = config or AnalysisConfig()
         self._matrix_provider = matrix_provider
+        self._telemetry = telemetry
 
     def run(self, fleet: Fleet) -> AnalysisReport:
         """Run the full analysis pipeline."""
@@ -86,6 +90,13 @@ class AnalysisOrchestrator:
         fleet_metrics, route_metrics = compute_scorecard(
             fleet, self._matrix_provider, self._config,
         )
+
+        # Step 1b: Pre-compute per-route matrices for tool use
+        per_route_matrices: dict[str, MatrixResult] = {}
+        for route in fleet.routes:
+            per_route_matrices[route.route_id] = get_route_matrix(
+                route, self._matrix_provider,
+            )
 
         # Step 2: Filter tools by applicability
         available_tools: list[AnalysisTool] = []
@@ -149,6 +160,7 @@ class AnalysisOrchestrator:
                     try:
                         tool_findings = tool.run(
                             fleet,
+                            matrices=per_route_matrices,
                             matrix_provider=self._matrix_provider,
                             work_rules=self._config.work_rules,
                         )
@@ -205,5 +217,10 @@ class AnalysisOrchestrator:
             benchmark=None,
             analyses_run=analyses_run,
             analyses_skipped=analyses_skipped,
-            metadata={"orchestrator_model": self._client._model},
+            metadata={
+                "orchestrator_model": self._client._model,
+                **({
+                    "telemetry_summary": self._telemetry.summary(),
+                } if self._telemetry else {}),
+            },
         )

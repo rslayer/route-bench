@@ -5,9 +5,7 @@ Each tool tested with a fleet where the issue is present and one where it is abs
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
-import pytest
+from datetime import UTC, datetime
 
 from routebench.analysis.diagnosis.dispatch import DispatchAnalysis
 from routebench.analysis.diagnosis.outliers import OutlierAnalysis
@@ -20,7 +18,7 @@ from routebench.infra.matrix.base import MatrixResult
 
 
 def _ts(hour: int = 8, minute: int = 0) -> datetime:
-    return datetime(2025, 1, 15, hour, minute, 0, tzinfo=timezone.utc)
+    return datetime(2025, 1, 15, hour, minute, 0, tzinfo=UTC)
 
 
 def _make_stop(

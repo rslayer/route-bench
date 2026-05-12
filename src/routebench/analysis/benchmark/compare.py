@@ -59,6 +59,7 @@ def compute_fleet_benchmark(
     fleet: Fleet,
     solution: FleetSolution,
     all_stops: list[Stop],
+    per_route_matrices: dict[str, MatrixResult] | None = None,
 ) -> FleetBenchmark:
     """Compare actual fleet to optimal VRPTW solution.
 
@@ -101,21 +102,19 @@ def compute_fleet_benchmark(
                 )
             idx += 1
 
-    # Compute actual total distance from assignments
-    actual_total = 0.0
-    idx = 1
-    for route in fleet.routes:
-        n = len(route.stops)
-        if n > 0:
-            actual_total += sum(
-                1.0 for _ in route.stops
-            )  # placeholder; actual computed elsewhere
-        idx += n
+    # Compute actual total distance from per-route matrices
+    actual_total_miles = 0.0
+    if per_route_matrices:
+        for route in fleet.routes:
+            matrix = per_route_matrices.get(route.route_id)
+            if matrix is not None:
+                n = len(route.stops)
+                if n > 0:
+                    dist = _actual_distance(matrix.distances_array(), n)
+                    actual_total_miles += dist / METERS_PER_MILE
 
     return FleetBenchmark(
-        actual_total_distance=sum(
-            1.0 for r in fleet.routes for _ in r.stops
-        ),  # Will be overridden by caller
+        actual_total_distance=actual_total_miles,
         optimal_total_distance=solution.total_distance_meters / METERS_PER_MILE,
         stop_migrations=migrations,
         optimality_gap_reported_by_solver=solution.optimality_gap,

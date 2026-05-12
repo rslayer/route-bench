@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
-import pytest
+from datetime import UTC, datetime
 
 from routebench.core.findings import (
     AnalysisReport,
@@ -22,7 +20,7 @@ AnalysisReport.model_rebuild()
 
 
 def _ts(hour: int = 8) -> datetime:
-    return datetime(2025, 1, 15, hour, 0, 0, tzinfo=timezone.utc)
+    return datetime(2025, 1, 15, hour, 0, 0, tzinfo=UTC)
 
 
 def _make_stop(route_id: str, seq: int) -> Stop:

@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
+import numpy as np
 
 from routebench.agent.client import LLMClient, LLMResponse
 from routebench.agent.tool_specs import build_tool_specs
-from routebench.agent.verifier import VerificationResult, Verifier, verify_slot
+from routebench.agent.verifier import Verifier, verify_slot
 from routebench.agent.writer import ReportWriter
 from routebench.core.findings import (
     AnalysisReport,
@@ -21,14 +21,15 @@ from routebench.core.findings import (
     RouteMetrics,
 )
 from routebench.core.schemas import Fleet, Route, Stop
+from routebench.infra.matrix.base import MatrixResult
+from routebench.report.prose_slots import ProseSlot, identify_prose_slots
 
 # Rebuild AnalysisReport to resolve forward ref to Fleet
 AnalysisReport.model_rebuild()
-from routebench.report.prose_slots import ProseSlot, identify_prose_slots
 
 
 def _ts(hour: int = 8) -> datetime:
-    return datetime(2025, 1, 15, hour, 0, 0, tzinfo=timezone.utc)
+    return datetime(2025, 1, 15, hour, 0, 0, tzinfo=UTC)
 
 
 def _make_stop(route_id: str, seq: int) -> Stop:
@@ -120,6 +121,21 @@ def _make_report(
     )
 
 
+def _mock_matrix_result(size: int) -> MatrixResult:
+    """Create a mock MatrixResult with realistic distances/durations."""
+    rng = np.random.default_rng(42)
+    distances = rng.uniform(500, 5000, size=(size, size))
+    durations = rng.uniform(60, 600, size=(size, size))
+    np.fill_diagonal(distances, 0.0)
+    np.fill_diagonal(durations, 0.0)
+    return MatrixResult(
+        durations_seconds=durations.tolist(),
+        distances_meters=distances.tolist(),
+        provider="mock",
+        cached=False,
+    )
+
+
 def _mock_llm_response(
     text: str = "",
     tool_calls: list[dict[str, Any]] | None = None,
@@ -180,8 +196,11 @@ class TestOrchestrator:
         mock_provider = MagicMock()
         mock_provider.name = "mock"
 
-        # Mock compute_scorecard to avoid needing real matrix provider
-        with patch("routebench.agent.orchestrator.compute_scorecard") as mock_sc:
+        # Mock compute_scorecard and get_route_matrix
+        with (
+            patch("routebench.agent.orchestrator.compute_scorecard") as mock_sc,
+            patch("routebench.agent.orchestrator.get_route_matrix") as mock_grm,
+        ):
             mock_sc.return_value = (
                 FleetMetrics(
                     total_routes=1, total_stops=5,
@@ -201,6 +220,7 @@ class TestOrchestrator:
                     ),
                 },
             )
+            mock_grm.return_value = _mock_matrix_result(6)
 
             orch = AnalysisOrchestrator(
                 client=mock_client,
@@ -246,7 +266,10 @@ class TestOrchestrator:
         mock_provider = MagicMock()
         mock_provider.name = "mock"
 
-        with patch("routebench.agent.orchestrator.compute_scorecard") as mock_sc:
+        with (
+            patch("routebench.agent.orchestrator.compute_scorecard") as mock_sc,
+            patch("routebench.agent.orchestrator.get_route_matrix") as mock_grm,
+        ):
             mock_sc.return_value = (
                 FleetMetrics(
                     total_routes=3, total_stops=15,
@@ -267,6 +290,7 @@ class TestOrchestrator:
                     for i in range(1, 4)
                 },
             )
+            mock_grm.return_value = _mock_matrix_result(6)
 
             orch = AnalysisOrchestrator(
                 client=mock_client,
@@ -323,7 +347,7 @@ class TestWriter:
 
         filled = writer.fill_slots(slots)
         assert len(filled) == len(slots)
-        for slot_id, prose in filled.items():
+        for _slot_id, prose in filled.items():
             assert isinstance(prose, str)
             assert len(prose) > 0
 

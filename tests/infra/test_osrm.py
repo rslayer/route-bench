@@ -5,14 +5,13 @@ Uses httpx mock transport to simulate OSRM responses without a real server.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import httpx
 import pytest
 
 from routebench.core.exceptions import MatrixUnavailableError
-from routebench.infra.matrix.osrm import OSRMMatrixProvider, MAX_CELLS_PER_REQUEST
+from routebench.infra.matrix.osrm import OSRMMatrixProvider
 
 
 def _make_osrm_response(
@@ -123,7 +122,6 @@ class TestOSRMChunking:
         """A 200x200 matrix (40K cells) gets split into chunks."""
         # Track how many HTTP calls are made
         call_count = 0
-        original_single = OSRMMatrixProvider._single_request
 
         def counting_single(
             self: OSRMMatrixProvider,

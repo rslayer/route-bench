@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -12,7 +12,7 @@ from routebench.analysis.benchmark.compare import (
     compute_fleet_benchmark,
     compute_route_benchmark,
 )
-from routebench.analysis.benchmark.tsptw import OptimalSequence, solve_tsptw
+from routebench.analysis.benchmark.tsptw import solve_tsptw
 from routebench.analysis.benchmark.vrptw import solve_vrptw
 from routebench.analysis.tools import TOOLS
 from routebench.core.config import WorkRules
@@ -21,7 +21,7 @@ from routebench.infra.matrix.base import MatrixResult
 
 
 def _ts(hour: int = 8, minute: int = 0) -> datetime:
-    return datetime(2025, 1, 15, hour, minute, 0, tzinfo=timezone.utc)
+    return datetime(2025, 1, 15, hour, minute, 0, tzinfo=UTC)
 
 
 def _make_stop(

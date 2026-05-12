@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from routebench.infra.matrix.base import MatrixResult
@@ -65,8 +65,8 @@ class TestCacheKey:
         """Different departure time buckets produce different keys."""
         origins = [(32.82, -96.77)]
         destinations = [(32.84, -96.75)]
-        dt1 = datetime(2025, 1, 15, 8, 0, 0, tzinfo=timezone.utc)
-        dt2 = datetime(2025, 1, 15, 10, 0, 0, tzinfo=timezone.utc)
+        dt1 = datetime(2025, 1, 15, 8, 0, 0, tzinfo=UTC)
+        dt2 = datetime(2025, 1, 15, 10, 0, 0, tzinfo=UTC)
         key1 = compute_cache_key(origins, destinations, dt1)
         key2 = compute_cache_key(origins, destinations, dt2)
         assert key1 != key2
