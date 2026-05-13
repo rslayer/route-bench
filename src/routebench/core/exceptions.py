@@ -120,3 +120,45 @@ class VerificationFailedError(RouteBenchError):
         super().__init__(message, ctx)
         self.slot_id = slot_id
         self.failures = failures or []
+
+
+class BudgetExceededError(RouteBenchError):
+    """Per-session or daily budget cap exceeded."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        budget_type: str = "session",
+        limit: float = 0.0,
+        current: float = 0.0,
+        context: dict[str, Any] | None = None,
+    ) -> None:
+        ctx = context or {}
+        ctx["budget_type"] = budget_type
+        ctx["limit"] = limit
+        ctx["current"] = current
+        super().__init__(message, ctx)
+        self.budget_type = budget_type
+        self.limit = limit
+        self.current = current
+
+
+class JobTimeoutError(RouteBenchError):
+    """Session job exceeded the configured timeout."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        session_id: str | None = None,
+        timeout_seconds: int = 0,
+        context: dict[str, Any] | None = None,
+    ) -> None:
+        ctx = context or {}
+        if session_id is not None:
+            ctx["session_id"] = session_id
+        ctx["timeout_seconds"] = timeout_seconds
+        super().__init__(message, ctx)
+        self.session_id = session_id
+        self.timeout_seconds = timeout_seconds

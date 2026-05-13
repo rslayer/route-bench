@@ -13,6 +13,25 @@ Four-layer pipeline:
 
 **Firewall principle:** every user-facing claim traces to a deterministic finding. The LLM rephrases and synthesizes; it never invents.
 
+### Hosted Architecture (Phase 8+9)
+
+```
+Streamlit UI  -->  FastAPI API  -->  SessionWorker  -->  Pipeline
+                    |                     |
+                    v                     v
+               Rate Limiter         Async Queue (depth=5)
+               Budget Tracker       Timeout Enforcement (600s)
+               Admin Endpoints      Storage (local/S3/R2)
+               SSE Progress         Telemetry Sink
+               Health Checks        Retention Job
+```
+
+- **Session-based queueing:** Single-concurrency worker with configurable queue depth
+- **Storage abstraction:** Local filesystem or S3-compatible (Cloudflare R2)
+- **Progress events:** SSE stream for real-time UI updates
+- **Cost tracking:** Per-session token counting with daily budget enforcement
+- **Observability:** Sentry integration, structured logging, admin endpoints
+
 ## Prerequisites
 
 - Python 3.12+
@@ -74,6 +93,23 @@ Verify it's running:
 curl "http://localhost:5000/table/v1/driving/-97.7431,30.2672;-96.7970,32.7767"
 ```
 
+## Run the API Server
+
+```bash
+# Start FastAPI
+uv run uvicorn routebench.app.api.app:create_app --factory --host 0.0.0.0 --port 8000
+
+# Start Streamlit UI (in another terminal)
+uv run streamlit run src/routebench/app/streamlit_app.py
+```
+
+Or with Docker:
+
+```bash
+docker build -t routebench .
+docker run -p 8000:8000 -p 8501:8501 --env-file .env routebench
+```
+
 ## Run Tests
 
 ```bash
@@ -83,17 +119,61 @@ uv run pytest
 ## Lint & Type Check
 
 ```bash
-uv run ruff check src/
+uv run ruff check src/ tests/
+uv run ruff format --check src/ tests/
 uv run mypy src/routebench
 ```
 
-## Run the Streamlit App
+## API Endpoints
 
-*(Placeholder — available after Phase 8)*
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/sessions` | Upload CSV, start analysis (returns 202) |
+| `GET` | `/sessions/{id}` | Poll session status |
+| `GET` | `/sessions/{id}/events` | SSE progress stream |
+| `GET` | `/sessions/{id}/report.html` | Download HTML report |
+| `GET` | `/sessions/{id}/report.pdf` | Download PDF report |
+| `GET` | `/healthz` | Health check |
+| `GET` | `/admin/sessions` | List sessions (admin) |
+| `GET` | `/admin/costs` | Cost distribution (admin) |
+| `POST` | `/admin/sessions/{id}/replay` | Re-render report (admin) |
+
+## Configuration
+
+Key environment variables (see `.env.example`):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ANTHROPIC_API_KEY` | — | Required for LLM layer |
+| `OSRM_HOST` | `http://localhost:5000` | OSRM endpoint |
+| `STORAGE_BACKEND` | `local` | `local` or `s3` |
+| `STORAGE_PATH` | `data/sessions` | Local storage path |
+| `R2_ENDPOINT` | — | S3/R2 endpoint URL |
+| `R2_BUCKET` | `routebench` | S3 bucket name |
+| `MAX_QUEUE_DEPTH` | `5` | Max queued jobs |
+| `JOB_TIMEOUT_SECONDS` | `600` | Per-job timeout |
+| `DAILY_BUDGET_USD` | `50.0` | Daily spend cap |
+| `ADMIN_TOKEN` | — | Admin API auth token |
+| `SENTRY_DSN` | — | Sentry error tracking |
+
+## Deployment
+
+### Fly.io
 
 ```bash
-uv run streamlit run src/routebench/app/streamlit_app.py
+# Main app
+fly deploy -c fly.toml
+
+# OSRM sidecar
+fly deploy -c fly.osrm.toml
 ```
+
+## Scripts
+
+- `scripts/generate_synthetic.py` — Generate synthetic test CSVs
+- `scripts/run_local.py` — Headless pipeline runner (no API server needed)
+- `scripts/benchmark_costs.py` — Grid benchmark across fleet sizes
+- `scripts/load_test.py` — Concurrent upload stress test
 
 ## Project Structure
 
@@ -101,12 +181,13 @@ uv run streamlit run src/routebench/app/streamlit_app.py
 route-bench/
 ├── src/routebench/
 │   ├── core/           # Schemas, validation, config, exceptions
-│   ├── infra/          # Matrix providers, storage, telemetry
+│   ├── infra/          # Matrix providers, storage backends, telemetry
 │   ├── analysis/       # Scoring, diagnosis, benchmark, visuals
 │   ├── report/         # Jinja2 templates, prose slots, PDF
 │   ├── agent/          # Orchestrator, writer, verifier, prompts
-│   └── app/            # Streamlit UI, pipeline, API stub
-├── tests/
+│   └── app/            # FastAPI, Streamlit, pipeline, worker, sessions
+│       └── api/        # Routes, admin, app factory
+├── tests/              # 151 tests
 ├── data/
 ├── scripts/
 └── notebooks/

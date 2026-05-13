@@ -1,0 +1,25 @@
+# fly.osrm.toml — OSRM sidecar app
+
+app = "routebench-osrm"
+primary_region = "dfw"
+
+[build]
+  image = "osrm/osrm-backend:latest"
+
+[http_service]
+  internal_port = 5000
+  force_https = false
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+
+[mounts]
+  source = "osrm_data"
+  destination = "/data"
+
+[processes]
+  app = "osrm-routed --algorithm mld /data/region.osrm --max-table-size 10000"
+
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "2gb"
