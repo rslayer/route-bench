@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import uuid
-from typing import Any
+from collections.abc import AsyncIterator
 
 import structlog
 from fastapi import APIRouter, Form, HTTPException, Request, UploadFile
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -17,8 +18,9 @@ from sse_starlette.sse import EventSourceResponse
 
 from routebench.app.sessions import SessionRegistry, SessionState, SessionStatus
 from routebench.app.worker import JobRequest
-from routebench.core.config import AnalysisConfig
+from routebench.core.config import MAX_UPLOAD_BYTES, AnalysisConfig
 from routebench.core.validation import validate_csv
+from routebench.infra.storage.local import LocalStorageBackend
 
 limiter = Limiter(key_func=get_remote_address)
 
@@ -65,10 +67,15 @@ async def create_session(
             detail="Daily budget exceeded. Service resumes at UTC midnight.",
         )
 
-    # Read file
+    # Read file with size limit
     upload_data = await file.read()
     if not upload_data:
         raise HTTPException(status_code=422, detail="Empty file uploaded")
+    if len(upload_data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Maximum size is {MAX_UPLOAD_BYTES // (1024 * 1024)} MB.",
+        )
 
     # Parse config
     analysis_config = AnalysisConfig()
@@ -95,15 +102,15 @@ async def create_session(
     finally:
         tmp_path.unlink(missing_ok=True)
 
-    # Create session
-    session_id = uuid.uuid4().hex[:16]
+    # Create session with full UUID
+    session_id = uuid.uuid4().hex
     registry.create(session_id)
 
     # Write upload to storage
     storage = request.app.state.storage
     await storage.write(session_id, "upload.csv", upload_data)
 
-    # Enqueue job
+    # Enqueue job — clean up on failure
     job = JobRequest(
         session_id=session_id,
         upload_data=upload_data,
@@ -111,6 +118,8 @@ async def create_session(
     )
     enqueued = await worker.enqueue(job)
     if not enqueued:
+        registry.remove_active(session_id)
+        await storage.delete_session(session_id)
         raise HTTPException(status_code=429, detail="Queue is full. Try again later.")
 
     logger.info("session_created", session_id=session_id)
@@ -135,11 +144,16 @@ async def session_events(request: Request, session_id: str) -> EventSourceRespon
     """SSE stream of progress events for a session."""
     registry = request.app.state.registry
 
-    async def event_generator() -> Any:
+    max_poll_seconds = 660  # 11 minutes
+    heartbeat_interval = 15  # seconds
+
+    async def event_generator() -> AsyncIterator[dict[str, str]]:
         last_state: SessionState | None = None
         last_pct: int = -1
+        start = time.monotonic()
+        last_heartbeat = start
 
-        while True:
+        while time.monotonic() - start < max_poll_seconds:
             status = await registry.get(session_id)
             if status is None:
                 yield {"event": "error", "data": json.dumps({"error": "Session not found"})}
@@ -152,6 +166,7 @@ async def session_events(request: Request, session_id: str) -> EventSourceRespon
                     "event": "progress",
                     "data": status.model_dump_json(),
                 }
+                last_heartbeat = time.monotonic()
 
             if status.state in ("succeeded", "failed"):
                 yield {
@@ -160,27 +175,41 @@ async def session_events(request: Request, session_id: str) -> EventSourceRespon
                 }
                 return
 
+            # Send heartbeat to keep connection alive
+            now = time.monotonic()
+            if now - last_heartbeat >= heartbeat_interval:
+                yield {"event": "heartbeat", "data": "{}"}
+                last_heartbeat = now
+
             await asyncio.sleep(0.5)
+
+        yield {"event": "error", "data": json.dumps({"error": "SSE timeout"})}
 
     return EventSourceResponse(event_generator())
 
 
-@router.get("/sessions/{session_id}/report.html")
-async def download_report_html(request: Request, session_id: str) -> RedirectResponse:
-    """Redirect to the HTML report (pre-signed URL or local path)."""
+@router.get("/sessions/{session_id}/report.html", response_model=None)
+async def download_report_html(request: Request, session_id: str) -> RedirectResponse | Response:
+    """Redirect to the HTML report (pre-signed URL or serve directly for local storage)."""
     storage = request.app.state.storage
     if not await storage.exists(session_id, "report.html"):
         raise HTTPException(status_code=404, detail="Report not found")
+    if isinstance(storage, LocalStorageBackend):
+        data = await storage.read(session_id, "report.html")
+        return Response(content=data, media_type="text/html")
     url = await storage.presigned_url(session_id, "report.html")
     return RedirectResponse(url=url, status_code=302)
 
 
-@router.get("/sessions/{session_id}/report.pdf")
-async def download_report_pdf(request: Request, session_id: str) -> RedirectResponse:
-    """Redirect to the PDF report."""
+@router.get("/sessions/{session_id}/report.pdf", response_model=None)
+async def download_report_pdf(request: Request, session_id: str) -> RedirectResponse | Response:
+    """Redirect to the PDF report (or serve directly for local storage)."""
     storage = request.app.state.storage
     if not await storage.exists(session_id, "report.pdf"):
         raise HTTPException(status_code=404, detail="PDF report not found")
+    if isinstance(storage, LocalStorageBackend):
+        data = await storage.read(session_id, "report.pdf")
+        return Response(content=data, media_type="application/pdf")
     url = await storage.presigned_url(session_id, "report.pdf")
     return RedirectResponse(url=url, status_code=302)
 
@@ -198,10 +227,10 @@ async def healthz(request: Request) -> JSONResponse:
     # Check storage
     checks["storage_writable"] = await storage.is_writable()
 
-    # Check OSRM
+    # Check OSRM with a lightweight nearest query
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"{settings.osrm_host}/table/v1/driving/-96.8,32.8;-96.7,32.9")
+            resp = await client.get(f"{settings.osrm_host}/nearest/v1/driving/0,0")
             checks["osrm_reachable"] = resp.status_code == 200
     except Exception:
         checks["osrm_reachable"] = False

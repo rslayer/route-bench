@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import aioboto3
 import structlog
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger()
@@ -13,6 +14,7 @@ class S3StorageBackend:
     """Stores session artifacts in an S3-compatible bucket.
 
     Layout: sessions/{session_id}/{filename}
+    Reuses a single aioboto3 Session to avoid per-call connection churn.
     """
 
     def __init__(
@@ -29,6 +31,7 @@ class S3StorageBackend:
         self._secret_access_key = secret_access_key
         self._bucket = bucket
         self._region = region
+        self._session = aioboto3.Session()
 
     def _boto_config(self) -> dict[str, Any]:
         return {
@@ -43,10 +46,7 @@ class S3StorageBackend:
         return f"sessions/{session_id}/{filename}"
 
     async def write(self, session_id: str, filename: str, data: bytes) -> None:
-        import aioboto3
-
-        session = aioboto3.Session()
-        async with session.client(**self._boto_config()) as s3:
+        async with self._session.client(**self._boto_config()) as s3:
             await s3.put_object(
                 Bucket=self._bucket,
                 Key=self._key(session_id, filename),
@@ -54,10 +54,7 @@ class S3StorageBackend:
             )
 
     async def read(self, session_id: str, filename: str) -> bytes:
-        import aioboto3
-
-        session = aioboto3.Session()
-        async with session.client(**self._boto_config()) as s3:
+        async with self._session.client(**self._boto_config()) as s3:
             try:
                 resp = await s3.get_object(
                     Bucket=self._bucket,
@@ -72,10 +69,7 @@ class S3StorageBackend:
                 raise
 
     async def exists(self, session_id: str, filename: str) -> bool:
-        import aioboto3
-
-        session = aioboto3.Session()
-        async with session.client(**self._boto_config()) as s3:
+        async with self._session.client(**self._boto_config()) as s3:
             try:
                 await s3.head_object(
                     Bucket=self._bucket,
@@ -86,10 +80,7 @@ class S3StorageBackend:
                 return False
 
     async def presigned_url(self, session_id: str, filename: str, ttl_seconds: int = 900) -> str:
-        import aioboto3
-
-        session = aioboto3.Session()
-        async with session.client(**self._boto_config()) as s3:
+        async with self._session.client(**self._boto_config()) as s3:
             url: str = await s3.generate_presigned_url(
                 "get_object",
                 Params={
@@ -101,11 +92,8 @@ class S3StorageBackend:
             return url
 
     async def delete_session(self, session_id: str) -> None:
-        import aioboto3
-
-        session = aioboto3.Session()
         prefix = f"sessions/{session_id}/"
-        async with session.client(**self._boto_config()) as s3:
+        async with self._session.client(**self._boto_config()) as s3:
             paginator = s3.get_paginator("list_objects_v2")
             async for page in paginator.paginate(Bucket=self._bucket, Prefix=prefix):
                 contents = page.get("Contents", [])
@@ -119,11 +107,8 @@ class S3StorageBackend:
         logger.info("session_deleted_s3", session_id=session_id)
 
     async def list_sessions(self) -> list[str]:
-        import aioboto3
-
-        session = aioboto3.Session()
         sessions: set[str] = set()
-        async with session.client(**self._boto_config()) as s3:
+        async with self._session.client(**self._boto_config()) as s3:
             paginator = s3.get_paginator("list_objects_v2")
             async for page in paginator.paginate(
                 Bucket=self._bucket, Prefix="sessions/", Delimiter="/"
@@ -137,11 +122,8 @@ class S3StorageBackend:
         return sorted(sessions)
 
     async def is_writable(self) -> bool:
-        import aioboto3
-
-        session = aioboto3.Session()
         try:
-            async with session.client(**self._boto_config()) as s3:
+            async with self._session.client(**self._boto_config()) as s3:
                 await s3.put_object(
                     Bucket=self._bucket,
                     Key=".probe",

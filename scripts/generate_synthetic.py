@@ -11,7 +11,7 @@ import csv
 import math
 import random
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 METRO_BBOXES: dict[str, tuple[float, float, float, float]] = {
@@ -55,9 +55,7 @@ def kmeans_assign(
         # Assign each point to nearest centroid
         new_assignments = []
         for lat, lon in points:
-            dists = [
-                (lat - clat) ** 2 + (lon - clon) ** 2 for clat, clon in centroids
-            ]
+            dists = [(lat - clat) ** 2 + (lon - clon) ** 2 for clat, clon in centroids]
             new_assignments.append(dists.index(min(dists)))
         if new_assignments == assignments:
             break
@@ -96,8 +94,7 @@ def generate_synthetic(
     # Generate all stops uniformly in the bounding box
     total_stops = n_routes * avg_stops_per_route
     stops = [
-        (rng.uniform(min_lat, max_lat), rng.uniform(min_lon, max_lon))
-        for _ in range(total_stops)
+        (rng.uniform(min_lat, max_lat), rng.uniform(min_lon, max_lon)) for _ in range(total_stops)
     ]
 
     # Assign to routes via k-means
@@ -109,7 +106,7 @@ def generate_synthetic(
         route_stops.setdefault(cluster, []).append(stops[i])
 
     # Sort within each cluster by polar angle from cluster centroid
-    for cluster_id, cluster_stops in route_stops.items():
+    for _cluster_id, cluster_stops in route_stops.items():
         cx = sum(s[0] for s in cluster_stops) / len(cluster_stops)
         cy = sum(s[1] for s in cluster_stops) / len(cluster_stops)
         cluster_stops.sort(key=lambda p: polar_angle(cx, cy, p[0], p[1]))
@@ -136,10 +133,10 @@ def generate_synthetic(
 
     rows: list[dict[str, object]] = []
 
-    for route_idx, (cluster_id, cluster_stops) in enumerate(sorted(route_stops.items())):
+    for route_idx, (_cluster_id, cluster_stops) in enumerate(sorted(route_stops.items())):
         route_id = f"R{route_idx + 1:03d}"
         start_hour = 7 + rng.randint(0, 2)
-        start_time = datetime(2025, 1, 15, start_hour, 0, 0, tzinfo=timezone.utc)
+        start_time = datetime(2025, 1, 15, start_hour, 0, 0, tzinfo=UTC)
         capacity = rng.randint(50, 200)
 
         # Depot row (stop_sequence=0)

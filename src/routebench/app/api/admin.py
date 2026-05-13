@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import hmac
 from datetime import datetime
 
 import structlog
@@ -17,7 +19,7 @@ router = APIRouter(prefix="/admin")
 
 def _check_token(request: Request, x_admin_token: str = Header(...)) -> None:
     expected = request.app.state.settings.admin_token
-    if not expected or x_admin_token != expected:
+    if not expected or not hmac.compare_digest(x_admin_token, expected):
         raise HTTPException(status_code=403, detail="Invalid admin token")
 
 
@@ -36,6 +38,7 @@ class CostDistribution(BaseModel):
     p95: float
     max: float
     total: float
+    budget_rejections: int = 0
 
 
 class ReplayResponse(BaseModel):
@@ -85,7 +88,11 @@ async def cost_distribution(
         return CostDistribution(count=0, p50=0.0, p95=0.0, max=0.0, total=0.0)
 
     dist = telemetry_sink.cost_distribution(window_hours=window)
-    return CostDistribution(**dist)
+
+    budget_tracker = getattr(request.app.state, "budget_tracker", None)
+    rejections = budget_tracker.rejections if budget_tracker is not None else 0
+
+    return CostDistribution(**dist, budget_rejections=rejections)
 
 
 @router.post("/sessions/{session_id}/replay", response_model=ReplayResponse)
@@ -112,27 +119,26 @@ async def replay_session(
     from routebench.agent.writer import ReportWriter
     from routebench.core.findings import AnalysisReport
     from routebench.report.document import ReportDocument
-    from routebench.report.prose_slots import identify_prose_slots
+    from routebench.report.prose_slots import ProseSlot, identify_prose_slots
 
     analysis = AnalysisReport.model_validate_json(analysis_data)
 
-    # Re-render with current templates
     doc = ReportDocument(analysis)
     slots = identify_prose_slots(analysis)
 
     settings = request.app.state.settings
     client = LLMClient(api_key=settings.anthropic_api_key, model=settings.claude_model)
     writer = ReportWriter(client=client)
-    prose = writer.fill_slots(slots)
-
-    verifier = Verifier(client=client)
-
-    from routebench.report.prose_slots import ProseSlot
 
     def _writer_fn(s: ProseSlot) -> str:
         return writer.fill_slots([s]).get(s.slot_id, "")
 
-    verified_prose, _results = verifier.verify_and_regenerate(prose, slots, _writer_fn)
+    # Run LLM calls in a thread to avoid blocking the event loop
+    prose = await asyncio.to_thread(writer.fill_slots, slots)
+    verifier = Verifier(client=client)
+    verified_prose, _results = await asyncio.to_thread(
+        verifier.verify_and_regenerate, prose, slots, _writer_fn
+    )
 
     html = doc.render(verified_prose)
     await storage.write(session_id, "report.html", html.encode())

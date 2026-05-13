@@ -27,16 +27,18 @@ def _make_csv(n_routes: int = 3) -> bytes:
     for r in range(n_routes):
         route_id = f"R-{r:03d}"
         for s in range(10):
-            rows.append({
-                "route_id": route_id,
-                "stop_sequence": s,
-                "latitude": round(base_lat + s * 0.01 + r * 0.05, 6),
-                "longitude": round(base_lon + s * 0.01 - r * 0.05, 6),
-                "planned_arrival": f"2024-01-15T{8 + s // 4:02d}:{(s * 15) % 60:02d}:00",
-                "planned_departure": f"2024-01-15T{8 + s // 4:02d}:{(s * 15) % 60 + 5:02d}:00",
-                "service_minutes": 5,
-                "units": 1,
-            })
+            rows.append(
+                {
+                    "route_id": route_id,
+                    "stop_sequence": s,
+                    "latitude": round(base_lat + s * 0.01 + r * 0.05, 6),
+                    "longitude": round(base_lon + s * 0.01 - r * 0.05, 6),
+                    "planned_arrival": f"2024-01-15T{8 + s // 4:02d}:{(s * 15) % 60:02d}:00",
+                    "planned_departure": f"2024-01-15T{8 + s // 4:02d}:{(s * 15) % 60 + 5:02d}:00",
+                    "service_minutes": 5,
+                    "units": 1,
+                }
+            )
 
     output = StringIO()
     writer = csv.DictWriter(output, fieldnames=rows[0].keys())
@@ -80,9 +82,7 @@ async def run_load_test(api_url: str, concurrency: int) -> None:
     print(f"Sending {concurrency} concurrent uploads to {api_url}...")
 
     async with httpx.AsyncClient() as client:
-        tasks = [
-            _upload_one(client, api_url, csv_data, i) for i in range(concurrency)
-        ]
+        tasks = [_upload_one(client, api_url, csv_data, i) for i in range(concurrency)]
         results = await asyncio.gather(*tasks)
 
     # Analyze results

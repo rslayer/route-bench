@@ -10,13 +10,16 @@ from pathlib import Path
 
 import structlog
 
+from routebench.app.budget import BudgetTracker
 from routebench.app.pipeline import PipelineDeps, run_session
 from routebench.app.sessions import (
     SessionError,
     SessionRegistry,
     SessionState,
 )
+from routebench.app.telemetry_sink import TelemetrySink
 from routebench.core.config import AnalysisConfig
+from routebench.infra.telemetry import Telemetry
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger()
 
@@ -39,11 +42,15 @@ class SessionWorker:
         registry: SessionRegistry,
         max_queue_depth: int = 5,
         job_timeout_seconds: int = 600,
+        telemetry_sink: TelemetrySink | None = None,
+        budget_tracker: BudgetTracker | None = None,
     ) -> None:
         self._deps = deps
         self._registry = registry
         self._queue: asyncio.Queue[JobRequest] = asyncio.Queue(maxsize=max_queue_depth)
         self._job_timeout = job_timeout_seconds
+        self._telemetry_sink = telemetry_sink
+        self._budget_tracker = budget_tracker
         self._task: asyncio.Task[None] | None = None
         self._running = False
 
@@ -117,6 +124,8 @@ class SessionWorker:
             f.write(job.upload_data)
             upload_path = Path(f.name)
 
+        session_telemetry = Telemetry(session_id=session_id)
+
         try:
             result = await asyncio.wait_for(
                 run_session(
@@ -124,10 +133,17 @@ class SessionWorker:
                     upload_path=upload_path,
                     config=job.config,
                     deps=self._deps,
+                    telemetry=session_telemetry,
                     on_progress=on_progress,
                 ),
                 timeout=self._job_timeout,
             )
+
+            # Flush telemetry and record spend
+            if self._telemetry_sink is not None:
+                cost_usd = await self._telemetry_sink.flush(session_id, session_telemetry)
+                if self._budget_tracker is not None:
+                    self._budget_tracker.record_spend(cost_usd)
 
             if result.state == "succeeded":
                 self._registry.update(

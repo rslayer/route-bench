@@ -10,6 +10,13 @@ from typing import Literal
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Claude pricing (per 1M tokens)
+CLAUDE_INPUT_PRICE_PER_M: float = 3.0
+CLAUDE_OUTPUT_PRICE_PER_M: float = 15.0
+
+# Upload limits
+MAX_UPLOAD_BYTES: int = 50 * 1024 * 1024  # 50 MB
+
 
 class WorkRules(BaseModel):
     """Work rules governing shift constraints."""

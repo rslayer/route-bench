@@ -13,7 +13,6 @@ from routebench.app.sessions import SessionRegistry
 from routebench.app.worker import JobRequest, SessionWorker
 from routebench.core.config import AnalysisConfig, Settings
 from routebench.infra.storage.local import LocalStorageBackend
-from routebench.infra.telemetry import Telemetry
 
 
 def _make_valid_csv_bytes() -> bytes:
@@ -37,7 +36,6 @@ def deps(storage: LocalStorageBackend) -> PipelineDeps:
         matrix_provider=MagicMock(),
         storage=storage,
         llm_client=MagicMock(),
-        telemetry=Telemetry(session_id="test"),
         settings=Settings(storage_path=str(storage._base)),
     )
 
