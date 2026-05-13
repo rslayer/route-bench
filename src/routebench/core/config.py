@@ -34,6 +34,7 @@ class AnalysisConfig(BaseModel):
     sequencing_threshold: float = 1.30
     underutilization_threshold: float = 0.60
     overutilization_threshold: float = 0.95
+    include_benchmark: bool = True
     include_pdf: bool = False
 
 

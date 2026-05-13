@@ -19,9 +19,7 @@ class DispatchAnalysis:
     requires_matrix: bool = False
 
     def applicability_check(self, fleet: Fleet) -> ApplicabilityResult:
-        has_all = all(
-            r.planned_start_time is not None for r in fleet.routes
-        )
+        has_all = all(r.planned_start_time is not None for r in fleet.routes)
         if has_all and len(fleet.routes) >= 2:
             return ApplicabilityResult(
                 is_applicable=True,
@@ -96,8 +94,7 @@ class DispatchAnalysis:
                         "same time, potentially causing dock congestion"
                     ),
                     suggested_investigation=(
-                        "Consider staggering dispatch times to reduce "
-                        "loading dock congestion"
+                        "Consider staggering dispatch times to reduce loading dock congestion"
                     ),
                 )
             )

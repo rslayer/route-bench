@@ -10,6 +10,7 @@ import structlog
 from routebench.agent.client import LLMClient
 from routebench.agent.tool_specs import build_tool_specs
 from routebench.analysis.scoring import compute_scorecard
+from routebench.analysis.scoring.distance import get_route_matrix
 from routebench.analysis.tools import TOOLS, AnalysisTool
 from routebench.core.config import AnalysisConfig
 from routebench.core.findings import (
@@ -19,7 +20,8 @@ from routebench.core.findings import (
     RouteMetrics,
 )
 from routebench.core.schemas import Fleet
-from routebench.infra.matrix.base import MatrixProvider
+from routebench.infra.matrix.base import MatrixProvider, MatrixResult
+from routebench.infra.telemetry import Telemetry
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger()
 
@@ -36,22 +38,11 @@ def _build_fleet_summary(fleet: Fleet) -> str:
     """Build a text summary of the fleet for the LLM."""
     total_stops = sum(len(r.stops) for r in fleet.routes)
     depot = fleet.routes[0] if fleet.routes else None
-    depot_str = (
-        f"({depot.depot_lat:.4f}, {depot.depot_lon:.4f})"
-        if depot else "N/A"
-    )
+    depot_str = f"({depot.depot_lat:.4f}, {depot.depot_lon:.4f})" if depot else "N/A"
 
-    has_demand = any(
-        s.demand_units is not None
-        for r in fleet.routes for s in r.stops
-    )
-    has_time_windows = any(
-        s.time_window_start is not None
-        for r in fleet.routes for s in r.stops
-    )
-    has_capacity = any(
-        r.vehicle_capacity_units is not None for r in fleet.routes
-    )
+    has_demand = any(s.demand_units is not None for r in fleet.routes for s in r.stops)
+    has_time_windows = any(s.time_window_start is not None for r in fleet.routes for s in r.stops)
+    has_capacity = any(r.vehicle_capacity_units is not None for r in fleet.routes)
 
     lines = [
         f"Fleet: {len(fleet.routes)} routes, {total_stops} stops",
@@ -72,10 +63,12 @@ class AnalysisOrchestrator:
         client: LLMClient,
         config: AnalysisConfig | None = None,
         matrix_provider: MatrixProvider | None = None,
+        telemetry: Telemetry | None = None,
     ) -> None:
         self._client = client
         self._config = config or AnalysisConfig()
         self._matrix_provider = matrix_provider
+        self._telemetry = telemetry
 
     def run(self, fleet: Fleet) -> AnalysisReport:
         """Run the full analysis pipeline."""
@@ -84,8 +77,18 @@ class AnalysisOrchestrator:
             msg = "matrix_provider is required for analysis"
             raise ValueError(msg)
         fleet_metrics, route_metrics = compute_scorecard(
-            fleet, self._matrix_provider, self._config,
+            fleet,
+            self._matrix_provider,
+            self._config,
         )
+
+        # Step 1b: Pre-compute per-route matrices for tool use
+        per_route_matrices: dict[str, MatrixResult] = {}
+        for route in fleet.routes:
+            per_route_matrices[route.route_id] = get_route_matrix(
+                route,
+                self._matrix_provider,
+            )
 
         # Step 2: Filter tools by applicability
         available_tools: list[AnalysisTool] = []
@@ -140,8 +143,12 @@ class AnalysisOrchestrator:
                         turns=turn + 1,
                     )
                     return self._build_report(
-                        fleet, fleet_metrics, route_metrics,
-                        findings, analyses_run, skipped,
+                        fleet,
+                        fleet_metrics,
+                        route_metrics,
+                        findings,
+                        analyses_run,
+                        skipped,
                     )
 
                 if tool_name in TOOLS:
@@ -149,43 +156,52 @@ class AnalysisOrchestrator:
                     try:
                         tool_findings = tool.run(
                             fleet,
+                            matrices=per_route_matrices,
                             matrix_provider=self._matrix_provider,
                             work_rules=self._config.work_rules,
                         )
                         findings.extend(tool_findings)
                         analyses_run.append(tool_name)
 
-                        summary = (
-                            f"{tool_name}: {len(tool_findings)} findings"
+                        summary = f"{tool_name}: {len(tool_findings)} findings"
+                        tool_results.append(
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": tc["id"],
+                                "content": summary,
+                            }
                         )
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": tc["id"],
-                            "content": summary,
-                        })
                     except Exception:
                         logger.exception("tool_execution_error", tool=tool_name)
-                        tool_results.append({
+                        tool_results.append(
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": tc["id"],
+                                "content": f"Error running {tool_name}",
+                                "is_error": True,
+                            }
+                        )
+                else:
+                    tool_results.append(
+                        {
                             "type": "tool_result",
                             "tool_use_id": tc["id"],
-                            "content": f"Error running {tool_name}",
+                            "content": f"Unknown tool: {tool_name}",
                             "is_error": True,
-                        })
-                else:
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": tc["id"],
-                        "content": f"Unknown tool: {tool_name}",
-                        "is_error": True,
-                    })
+                        }
+                    )
 
             # Add assistant message and tool results to conversation
             messages.append({"role": "assistant", "content": response.content})
             messages.append({"role": "user", "content": tool_results})
 
         return self._build_report(
-            fleet, fleet_metrics, route_metrics,
-            findings, analyses_run, skipped,
+            fleet,
+            fleet_metrics,
+            route_metrics,
+            findings,
+            analyses_run,
+            skipped,
         )
 
     def _build_report(
@@ -205,5 +221,14 @@ class AnalysisOrchestrator:
             benchmark=None,
             analyses_run=analyses_run,
             analyses_skipped=analyses_skipped,
-            metadata={"orchestrator_model": self._client._model},
+            metadata={
+                "orchestrator_model": self._client._model,
+                **(
+                    {
+                        "telemetry_summary": self._telemetry.summary(),
+                    }
+                    if self._telemetry
+                    else {}
+                ),
+            },
         )

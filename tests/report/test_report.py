@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
-import pytest
+from datetime import UTC, datetime
 
 from routebench.core.findings import (
     AnalysisReport,
@@ -22,7 +20,7 @@ AnalysisReport.model_rebuild()
 
 
 def _ts(hour: int = 8) -> datetime:
-    return datetime(2025, 1, 15, hour, 0, 0, tzinfo=timezone.utc)
+    return datetime(2025, 1, 15, hour, 0, 0, tzinfo=UTC)
 
 
 def _make_stop(route_id: str, seq: int) -> Stop:
@@ -47,17 +45,16 @@ def _make_route(route_id: str, n_stops: int = 5) -> Route:
 
 def _make_fleet(n_routes: int = 3) -> Fleet:
     return Fleet(
-        routes=[
-            _make_route(f"R-{i:03d}", n_stops=5)
-            for i in range(1, n_routes + 1)
-        ],
+        routes=[_make_route(f"R-{i:03d}", n_stops=5) for i in range(1, n_routes + 1)],
         upload_id="test-session",
         uploaded_at=_ts(),
     )
 
 
 def _make_finding(
-    route_id: str, severity: str = "high", gap: float = 25.0,
+    route_id: str,
+    severity: str = "high",
+    gap: float = 25.0,
 ) -> Finding:
     return Finding(
         category="sequencing",
@@ -127,18 +124,14 @@ def _make_prose(report: AnalysisReport) -> dict[str, str]:
             "sequencing inefficiencies in routes R-001 and R-002."
         ),
         "fleet_overview_narrative": (
-            "The fleet covers 135.0 miles across 3 routes, "
-            "averaging 8.0 hours per route."
+            "The fleet covers 135.0 miles across 3 routes, averaging 8.0 hours per route."
         ),
         "investigation_priorities": (
-            "1. Resequence R-001 (35% gap). "
-            "2. Resequence R-002 (25% gap)."
+            "1. Resequence R-001 (35% gap). 2. Resequence R-002 (25% gap)."
         ),
     }
     for f in report.findings:
-        prose[f"finding_{f.finding_id}"] = (
-            f"Finding {f.finding_id}: {f.title}"
-        )
+        prose[f"finding_{f.finding_id}"] = f"Finding {f.finding_id}: {f.title}"
     return prose
 
 

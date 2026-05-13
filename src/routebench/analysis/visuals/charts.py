@@ -5,6 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 import altair as alt
+import structlog
+
+from routebench.analysis.visuals.theme import COLORS
+
+logger: structlog.stdlib.BoundLogger = structlog.get_logger()
 
 
 def _render_svg(chart: alt.TopLevelMixin) -> str:
@@ -16,14 +21,15 @@ def _render_svg(chart: alt.TopLevelMixin) -> str:
         svg_bytes: str = vlc.vegalite_to_svg(vl_spec)
         return svg_bytes
     except Exception:
+        logger.exception("chart_render_error")
         return "<svg><text>Chart rendering unavailable</text></svg>"
 
 
 def _get_val(rm: object, key: str, default: object = None) -> object:
-    """Get a value from dict or object attribute."""
+    """Get a value from dict."""
     if isinstance(rm, dict):
         return rm.get(key, default)
-    return getattr(rm, key, default)
+    return default
 
 
 def sequencing_index_distribution(
@@ -42,7 +48,7 @@ def sequencing_index_distribution(
     chart = (
         alt.Chart(alt.Data(values=data))  # type: ignore[no-untyped-call]
         .mark_bar(
-            color="#2563eb",
+            color=COLORS["primary"],
             cornerRadiusTopLeft=3,
             cornerRadiusTopRight=3,
         )
@@ -51,7 +57,8 @@ def sequencing_index_distribution(
             y=alt.Y("sequencing_index:Q", title="Sequencing Index"),
         )
         .properties(
-            width=500, height=250,
+            width=500,
+            height=250,
             title="Sequencing Index by Route",
         )
     )
@@ -75,7 +82,7 @@ def time_distribution(
     bars = (
         alt.Chart(alt.Data(values=data))  # type: ignore[no-untyped-call]
         .mark_bar(
-            color="#6366f1",
+            color=COLORS["secondary"],
             cornerRadiusTopLeft=3,
             cornerRadiusTopRight=3,
         )
@@ -88,12 +95,14 @@ def time_distribution(
     cap_data = [{"shift_cap": shift_cap_hours}]
     rule = (
         alt.Chart(alt.Data(values=cap_data))  # type: ignore[no-untyped-call]
-        .mark_rule(color="#dc2626", strokeDash=[5, 3], strokeWidth=2)
+        .mark_rule(color=COLORS["danger"], strokeDash=[5, 3], strokeWidth=2)
         .encode(y=alt.Y("shift_cap:Q"))
     )
 
     chart = (bars + rule).properties(
-        width=500, height=250, title="Total Time by Route",
+        width=500,
+        height=250,
+        title="Total Time by Route",
     )
     return _render_svg(chart)
 
@@ -107,11 +116,13 @@ def capacity_utilization_chart(
         cap = _get_val(rm, "capacity_utilization", {})
         if isinstance(cap, dict):
             for dim, val in cap.items():
-                data.append({
-                    "route_id": rid,
-                    "dimension": dim,
-                    "utilization": val * 100,
-                })
+                data.append(
+                    {
+                        "route_id": rid,
+                        "dimension": dim,
+                        "utilization": val * 100,
+                    }
+                )
 
     if not data:
         return ""
@@ -125,7 +136,8 @@ def capacity_utilization_chart(
             color=alt.Color("dimension:N", title="Dimension"),
         )
         .properties(
-            width=500, height=250,
+            width=500,
+            height=250,
             title="Capacity Utilization by Route",
         )
     )
@@ -152,7 +164,7 @@ def benchmark_gap_chart(
     chart = (
         alt.Chart(alt.Data(values=data))  # type: ignore[no-untyped-call]
         .mark_bar(
-            color="#d97706",
+            color=COLORS["warning"],
             cornerRadiusTopLeft=3,
             cornerRadiusTopRight=3,
         )
@@ -161,7 +173,8 @@ def benchmark_gap_chart(
             y=alt.Y("distance_gap_pct:Q", title="Distance Gap (%)"),
         )
         .properties(
-            width=500, height=250,
+            width=500,
+            height=250,
             title="Benchmark Distance Gap by Route",
         )
     )

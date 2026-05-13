@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -12,7 +12,7 @@ from routebench.analysis.benchmark.compare import (
     compute_fleet_benchmark,
     compute_route_benchmark,
 )
-from routebench.analysis.benchmark.tsptw import OptimalSequence, solve_tsptw
+from routebench.analysis.benchmark.tsptw import solve_tsptw
 from routebench.analysis.benchmark.vrptw import solve_vrptw
 from routebench.analysis.tools import TOOLS
 from routebench.core.config import WorkRules
@@ -21,11 +21,15 @@ from routebench.infra.matrix.base import MatrixResult
 
 
 def _ts(hour: int = 8, minute: int = 0) -> datetime:
-    return datetime(2025, 1, 15, hour, minute, 0, tzinfo=timezone.utc)
+    return datetime(2025, 1, 15, hour, minute, 0, tzinfo=UTC)
 
 
 def _make_stop(
-    route_id: str, seq: int, lat: float, lon: float, svc: float = 5.0,
+    route_id: str,
+    seq: int,
+    lat: float,
+    lon: float,
+    svc: float = 5.0,
     demand_units: float | None = None,
 ) -> Stop:
     return Stop(
@@ -95,7 +99,7 @@ class TestTSPTW:
         dists = [[0.0] * n for _ in range(n)]
         # depot to stops
         dists[0][1] = 2800.0  # depot→north
-        dists[0][2] = 500.0   # depot→south
+        dists[0][2] = 500.0  # depot→south
         dists[0][3] = 1700.0  # depot→mid
         # stops to depot
         dists[1][0] = 2800.0
@@ -200,8 +204,14 @@ class TestVRPTW:
         n = 9
         coords = [
             (32.825, -96.775),  # depot
-            (32.80, -96.77), (32.81, -96.77), (32.82, -96.77), (32.83, -96.77),  # A stops
-            (33.00, -96.77), (33.01, -96.77), (33.02, -96.77), (32.805, -96.77),  # B stops
+            (32.80, -96.77),
+            (32.81, -96.77),
+            (32.82, -96.77),
+            (32.83, -96.77),  # A stops
+            (33.00, -96.77),
+            (33.01, -96.77),
+            (33.02, -96.77),
+            (32.805, -96.77),  # B stops
         ]
 
         dists = [[0.0] * n for _ in range(n)]
@@ -283,8 +293,10 @@ class TestCompare:
         n = 5
         coords = [
             (32.825, -96.775),
-            (32.80, -96.77), (32.81, -96.77),
-            (33.00, -96.77), (33.01, -96.77),
+            (32.80, -96.77),
+            (32.81, -96.77),
+            (33.00, -96.77),
+            (33.01, -96.77),
         ]
         dists = [[0.0] * n for _ in range(n)]
         for i in range(n):

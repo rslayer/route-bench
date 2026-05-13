@@ -58,24 +58,17 @@ class TimePressureAnalysis:
             idle_pct = (idle_hours / total_hours * 100) if total_hours > 0 else 0.0
 
             # Classify idle pattern
-            has_time_windows = any(
-                s.time_window_start is not None for s in route.stops
-            )
+            has_time_windows = any(s.time_window_start is not None for s in route.stops)
 
             if has_time_windows:
-                hypothesis = (
-                    f"Route {route.route_id}: idle time driven by time windows"
-                )
+                hypothesis = f"Route {route.route_id}: idle time driven by time windows"
             elif idle_hours > 1.0:
                 hypothesis = (
                     f"Route {route.route_id}: scattered idle time suggests "
                     f"service time underestimation"
                 )
             else:
-                hypothesis = (
-                    f"Route {route.route_id}: moderate idle time, "
-                    f"possible early return"
-                )
+                hypothesis = f"Route {route.route_id}: moderate idle time, possible early return"
 
             severity: str
             if idle_hours >= 2.0:
@@ -91,8 +84,7 @@ class TimePressureAnalysis:
                     severity=severity,  # type: ignore[arg-type]
                     confidence=0.75,
                     title=(
-                        f"Route {route.route_id}: "
-                        f"{idle_hours:.1f}h idle ({idle_pct:.0f}% of shift)"
+                        f"Route {route.route_id}: {idle_hours:.1f}h idle ({idle_pct:.0f}% of shift)"
                     ),
                     evidence=[
                         FindingEvidence(

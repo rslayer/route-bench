@@ -91,17 +91,14 @@ class OutlierAnalysis:
                             ],
                             references=FindingReference(
                                 route_ids=[route.route_id],
-                                stop_sequences=[
-                                    (route.route_id, stop.stop_sequence)
-                                ],
+                                stop_sequences=[(route.route_id, stop.stop_sequence)],
                             ),
                             hypothesis=(
                                 f"Stop {stop.stop_sequence} is geographically "
                                 f"distant from other stops on this route"
                             ),
                             suggested_investigation=(
-                                "Consider reassigning this stop to a "
-                                "geographically closer route"
+                                "Consider reassigning this stop to a geographically closer route"
                             ),
                         )
                     )

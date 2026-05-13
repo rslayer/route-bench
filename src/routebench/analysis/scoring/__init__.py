@@ -12,6 +12,9 @@ from routebench.analysis.scoring.distance import (
     compute_distance_metrics,
     get_route_matrix,
 )
+from routebench.analysis.scoring.sequencing_index import (
+    compute_sequencing_index,
+)
 from routebench.analysis.scoring.time import compute_time_metrics
 from routebench.analysis.scoring.utilization import compute_utilization_metrics
 from routebench.core.config import AnalysisConfig
@@ -79,9 +82,10 @@ def compute_scorecard(
         util_metrics = compute_utilization_metrics(route)
 
         # Compliance metrics
-        compliance_metrics = compute_compliance_metrics(
-            route, time_metrics, work_rules
-        )
+        compliance_metrics = compute_compliance_metrics(route, time_metrics, work_rules)
+
+        # Sequencing index
+        seq_index = compute_sequencing_index(route, matrix)
 
         # Build RouteMetrics
         total_dist_miles = _f(dist_metrics["total_distance_miles"])
@@ -103,10 +107,14 @@ def compute_scorecard(
             idle_time_hours=idle_time_hrs,
             stop_count=len(route.stops),
             stops_per_hour=stops_per_hr,
+            sequencing_index=seq_index,
             capacity_utilization=cap_util,
             time_window_violations=tw_violations,
             shift_overrun_minutes=shift_overrun,
         )
+
+        if seq_index is not None:
+            sequencing_indices.append(seq_index)
         route_metrics_map[route.route_id] = rm
 
         # Accumulate fleet totals
@@ -125,9 +133,7 @@ def compute_scorecard(
     for dim, vals in all_utilizations.items():
         avg_utilization[dim] = sum(vals) / len(vals) if vals else 0.0
 
-    median_seq = (
-        statistics.median(sequencing_indices) if sequencing_indices else None
-    )
+    median_seq = statistics.median(sequencing_indices) if sequencing_indices else None
 
     fleet_metrics = FleetMetrics(
         total_routes=len(fleet.routes),

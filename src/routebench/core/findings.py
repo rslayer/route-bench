@@ -72,9 +72,7 @@ class Finding(BaseModel):
         payload = {
             "category": self.category,
             "route_ids": sorted(self.references.route_ids),
-            "stop_sequences": sorted(
-                (r, s) for r, s in self.references.stop_sequences
-            ),
+            "stop_sequences": sorted((r, s) for r, s in self.references.stop_sequences),
             "evidence": [
                 {
                     "metric_name": e.metric_name,

@@ -5,14 +5,13 @@ Uses httpx mock transport to simulate OSRM responses without a real server.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import httpx
 import pytest
 
 from routebench.core.exceptions import MatrixUnavailableError
-from routebench.infra.matrix.osrm import OSRMMatrixProvider, MAX_CELLS_PER_REQUEST
+from routebench.infra.matrix.osrm import OSRMMatrixProvider
 
 
 def _make_osrm_response(
@@ -22,12 +21,10 @@ def _make_osrm_response(
     return {
         "code": "Ok",
         "durations": [
-            [base_duration * (i + j + 1) for j in range(n_destinations)]
-            for i in range(n_origins)
+            [base_duration * (i + j + 1) for j in range(n_destinations)] for i in range(n_origins)
         ],
         "distances": [
-            [base_distance * (i + j + 1) for j in range(n_destinations)]
-            for i in range(n_origins)
+            [base_distance * (i + j + 1) for j in range(n_destinations)] for i in range(n_origins)
         ],
     }
 
@@ -123,7 +120,6 @@ class TestOSRMChunking:
         """A 200x200 matrix (40K cells) gets split into chunks."""
         # Track how many HTTP calls are made
         call_count = 0
-        original_single = OSRMMatrixProvider._single_request
 
         def counting_single(
             self: OSRMMatrixProvider,
@@ -155,12 +151,10 @@ def _make_mock_result(n_origins: int, n_destinations: int) -> Any:
 
     return MatrixResult(
         durations_seconds=[
-            [100.0 * (i + j + 1) for j in range(n_destinations)]
-            for i in range(n_origins)
+            [100.0 * (i + j + 1) for j in range(n_destinations)] for i in range(n_origins)
         ],
         distances_meters=[
-            [5000.0 * (i + j + 1) for j in range(n_destinations)]
-            for i in range(n_origins)
+            [5000.0 * (i + j + 1) for j in range(n_destinations)] for i in range(n_origins)
         ],
         provider="osrm",
         cached=False,

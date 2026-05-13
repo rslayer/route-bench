@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
+import numpy as np
 
 from routebench.agent.client import LLMClient, LLMResponse
 from routebench.agent.tool_specs import build_tool_specs
-from routebench.agent.verifier import VerificationResult, Verifier, verify_slot
+from routebench.agent.verifier import Verifier, verify_slot
 from routebench.agent.writer import ReportWriter
 from routebench.core.findings import (
     AnalysisReport,
@@ -21,14 +21,15 @@ from routebench.core.findings import (
     RouteMetrics,
 )
 from routebench.core.schemas import Fleet, Route, Stop
+from routebench.infra.matrix.base import MatrixResult
+from routebench.report.prose_slots import ProseSlot, identify_prose_slots
 
 # Rebuild AnalysisReport to resolve forward ref to Fleet
 AnalysisReport.model_rebuild()
-from routebench.report.prose_slots import ProseSlot, identify_prose_slots
 
 
 def _ts(hour: int = 8) -> datetime:
-    return datetime(2025, 1, 15, hour, 0, 0, tzinfo=timezone.utc)
+    return datetime(2025, 1, 15, hour, 0, 0, tzinfo=UTC)
 
 
 def _make_stop(route_id: str, seq: int) -> Stop:
@@ -85,10 +86,7 @@ def _make_report(
     n_findings: int = 3,
 ) -> AnalysisReport:
     fleet = fleet or _make_fleet()
-    findings = [
-        _make_finding(f"R-{i:03d}", gap=25.0 - i * 5)
-        for i in range(1, n_findings + 1)
-    ]
+    findings = [_make_finding(f"R-{i:03d}", gap=25.0 - i * 5) for i in range(1, n_findings + 1)]
     route_metrics = {
         r.route_id: RouteMetrics(
             route_id=r.route_id,
@@ -117,6 +115,21 @@ def _make_report(
         analyses_run=["analyze_sequencing"],
         analyses_skipped=[],
         metadata={"test": True},
+    )
+
+
+def _mock_matrix_result(size: int) -> MatrixResult:
+    """Create a mock MatrixResult with realistic distances/durations."""
+    rng = np.random.default_rng(42)
+    distances = rng.uniform(500, 5000, size=(size, size))
+    durations = rng.uniform(60, 600, size=(size, size))
+    np.fill_diagonal(distances, 0.0)
+    np.fill_diagonal(durations, 0.0)
+    return MatrixResult(
+        durations_seconds=durations.tolist(),
+        distances_meters=distances.tolist(),
+        provider="mock",
+        cached=False,
     )
 
 
@@ -169,23 +182,30 @@ class TestOrchestrator:
         mock_client._model = "claude-sonnet-4-7"
         # LLM signals completion on first call
         mock_client.generate.return_value = _mock_llm_response(
-            tool_calls=[{
-                "type": "tool_use",
-                "id": "call_1",
-                "name": "analysis_complete",
-                "input": {"summary": "Single route analyzed"},
-            }],
+            tool_calls=[
+                {
+                    "type": "tool_use",
+                    "id": "call_1",
+                    "name": "analysis_complete",
+                    "input": {"summary": "Single route analyzed"},
+                }
+            ],
         )
 
         mock_provider = MagicMock()
         mock_provider.name = "mock"
 
-        # Mock compute_scorecard to avoid needing real matrix provider
-        with patch("routebench.agent.orchestrator.compute_scorecard") as mock_sc:
+        # Mock compute_scorecard and get_route_matrix
+        with (
+            patch("routebench.agent.orchestrator.compute_scorecard") as mock_sc,
+            patch("routebench.agent.orchestrator.get_route_matrix") as mock_grm,
+        ):
             mock_sc.return_value = (
                 FleetMetrics(
-                    total_routes=1, total_stops=5,
-                    total_distance_miles=20.0, total_time_hours=4.0,
+                    total_routes=1,
+                    total_stops=5,
+                    total_distance_miles=20.0,
+                    total_time_hours=4.0,
                     routes_over_shift_cap=0,
                 ),
                 {
@@ -201,6 +221,7 @@ class TestOrchestrator:
                     ),
                 },
             )
+            mock_grm.return_value = _mock_matrix_result(6)
 
             orch = AnalysisOrchestrator(
                 client=mock_client,
@@ -226,31 +247,40 @@ class TestOrchestrator:
         # Second call: LLM signals done
         mock_client.generate.side_effect = [
             _mock_llm_response(
-                tool_calls=[{
-                    "type": "tool_use",
-                    "id": "call_1",
-                    "name": "analyze_sequencing",
-                    "input": {"tool_name": "analyze_sequencing"},
-                }],
+                tool_calls=[
+                    {
+                        "type": "tool_use",
+                        "id": "call_1",
+                        "name": "analyze_sequencing",
+                        "input": {"tool_name": "analyze_sequencing"},
+                    }
+                ],
             ),
             _mock_llm_response(
-                tool_calls=[{
-                    "type": "tool_use",
-                    "id": "call_2",
-                    "name": "analysis_complete",
-                    "input": {"summary": "Sequencing analyzed"},
-                }],
+                tool_calls=[
+                    {
+                        "type": "tool_use",
+                        "id": "call_2",
+                        "name": "analysis_complete",
+                        "input": {"summary": "Sequencing analyzed"},
+                    }
+                ],
             ),
         ]
 
         mock_provider = MagicMock()
         mock_provider.name = "mock"
 
-        with patch("routebench.agent.orchestrator.compute_scorecard") as mock_sc:
+        with (
+            patch("routebench.agent.orchestrator.compute_scorecard") as mock_sc,
+            patch("routebench.agent.orchestrator.get_route_matrix") as mock_grm,
+        ):
             mock_sc.return_value = (
                 FleetMetrics(
-                    total_routes=3, total_stops=15,
-                    total_distance_miles=60.0, total_time_hours=12.0,
+                    total_routes=3,
+                    total_stops=15,
+                    total_distance_miles=60.0,
+                    total_time_hours=12.0,
                     routes_over_shift_cap=0,
                 ),
                 {
@@ -267,6 +297,7 @@ class TestOrchestrator:
                     for i in range(1, 4)
                 },
             )
+            mock_grm.return_value = _mock_matrix_result(6)
 
             orch = AnalysisOrchestrator(
                 client=mock_client,
@@ -323,7 +354,7 @@ class TestWriter:
 
         filled = writer.fill_slots(slots)
         assert len(filled) == len(slots)
-        for slot_id, prose in filled.items():
+        for _slot_id, prose in filled.items():
             assert isinstance(prose, str)
             assert len(prose) > 0
 
@@ -342,9 +373,7 @@ class TestVerifier:
                     "finding_id": "abc12345",
                     "category": "sequencing",
                     "severity": "high",
-                    "evidence": [
-                        {"metric_name": "distance_gap_pct", "actual_value": 25.3}
-                    ],
+                    "evidence": [{"metric_name": "distance_gap_pct", "actual_value": 25.3}],
                     "references": {"route_ids": ["R-001"]},
                 },
             },
@@ -369,9 +398,7 @@ class TestVerifier:
                     "finding_id": "abc12345",
                     "category": "sequencing",
                     "severity": "high",
-                    "evidence": [
-                        {"metric_name": "distance_gap_pct", "actual_value": 25.3}
-                    ],
+                    "evidence": [{"metric_name": "distance_gap_pct", "actual_value": 25.3}],
                     "references": {"route_ids": ["R-001"]},
                 },
             },
@@ -443,7 +470,9 @@ class TestVerifier:
 
         verifier = Verifier(client=None, use_llm_judge=False)
         final_prose, results = verifier.verify_and_regenerate(
-            {"test_slot": bad_prose}, [slot], bad_writer,
+            {"test_slot": bad_prose},
+            [slot],
+            bad_writer,
         )
 
         # Should have used deterministic fallback

@@ -37,19 +37,21 @@ def build_tool_specs(
         specs.append(spec)
 
     # Add a "done" tool for the orchestrator to signal completion
-    specs.append({
-        "name": "analysis_complete",
-        "description": "Signal that analysis is complete and no more tools need to be run",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "summary": {
-                    "type": "string",
-                    "description": "Brief summary of what was analyzed",
+    specs.append(
+        {
+            "name": "analysis_complete",
+            "description": "Signal that analysis is complete and no more tools need to be run",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "summary": {
+                        "type": "string",
+                        "description": "Brief summary of what was analyzed",
+                    },
                 },
+                "required": ["summary"],
             },
-            "required": ["summary"],
-        },
-    })
+        }
+    )
 
     return specs

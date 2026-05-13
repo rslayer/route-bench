@@ -120,10 +120,7 @@ def verify_slot(
         if num == 0 or num == 1 or num == 100:
             continue
         # Check if any source number is within tolerance
-        matched = any(
-            abs(num - src) <= _ROUNDING_TOLERANCE
-            for src in source_numbers
-        )
+        matched = any(abs(num - src) <= _ROUNDING_TOLERANCE for src in source_numbers)
         if not matched:
             issues.append(f"Number {num_str} not found in source data")
 
@@ -136,13 +133,13 @@ def verify_slot(
     # Check required references
     for required_id in slot.required_references:
         if required_id not in prose:
-            issues.append(
-                f"Required reference {required_id} not mentioned in prose"
-            )
+            issues.append(f"Required reference {required_id} not mentioned in prose")
 
     passed = len(issues) == 0
     return VerificationResult(
-        slot_id=slot.slot_id, passed=passed, issues=issues,
+        slot_id=slot.slot_id,
+        passed=passed,
+        issues=issues,
     )
 
 
@@ -249,6 +246,7 @@ class Verifier:
             return True
 
         from pathlib import Path
+
         prompt_path = Path(__file__).parent / "prompts" / "verifier.md"
         system = prompt_path.read_text()
 

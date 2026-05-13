@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import csv
-import tempfile
 from pathlib import Path
 
 import pytest
 
-from routebench.core.config import AnalysisConfig
 from routebench.core.validation import validate_csv
 
 
@@ -34,26 +32,30 @@ def _minimal_rows(
     """Generate a minimal valid set of CSV rows with depot + n delivery stops."""
     rows: list[dict[str, object]] = []
     # Depot row
-    rows.append({
-        "route_id": route_id,
-        "stop_sequence": 0,
-        "latitude": depot_lat,
-        "longitude": depot_lon,
-        "stop_type": "depot",
-        "service_time_minutes": 0,
-        "planned_start_time": "2025-01-15T08:00:00+00:00",
-    })
+    rows.append(
+        {
+            "route_id": route_id,
+            "stop_sequence": 0,
+            "latitude": depot_lat,
+            "longitude": depot_lon,
+            "stop_type": "depot",
+            "service_time_minutes": 0,
+            "planned_start_time": "2025-01-15T08:00:00+00:00",
+        }
+    )
     # Delivery stops
     for i in range(1, n_stops + 1):
-        rows.append({
-            "route_id": route_id,
-            "stop_sequence": i,
-            "latitude": depot_lat + 0.01 * i,
-            "longitude": depot_lon + 0.01 * i,
-            "stop_type": "delivery",
-            "service_time_minutes": 5.0,
-            "planned_start_time": "2025-01-15T08:00:00+00:00",
-        })
+        rows.append(
+            {
+                "route_id": route_id,
+                "stop_sequence": i,
+                "latitude": depot_lat + 0.01 * i,
+                "longitude": depot_lon + 0.01 * i,
+                "stop_type": "delivery",
+                "service_time_minutes": 5.0,
+                "planned_start_time": "2025-01-15T08:00:00+00:00",
+            }
+        )
     return rows
 
 
@@ -95,7 +97,7 @@ class TestValidCSV:
         rows = _minimal_rows(depot_lat=30.25, depot_lon=-97.75)
         csv_path = _write_csv(rows, tmp_path / "depot.csv")
 
-        fleet, report = validate_csv(csv_path)
+        fleet, _report = validate_csv(csv_path)
 
         assert fleet is not None
         route = fleet.routes[0]
@@ -110,7 +112,7 @@ class TestValidCSV:
         rows = _minimal_rows("R001", 5)
         csv_path = _write_csv(rows, tmp_path / "count.csv")
 
-        fleet, report = validate_csv(csv_path)
+        fleet, _report = validate_csv(csv_path)
 
         assert fleet is not None
         assert fleet.total_stops() == 5
@@ -170,7 +172,7 @@ class TestOutOfRange:
         rows[1]["longitude"] = 0.0
         csv_path = _write_csv(rows, tmp_path / "zero.csv")
 
-        fleet, report = validate_csv(csv_path)
+        _fleet, report = validate_csv(csv_path)
 
         assert report.is_valid is False
         codes = [e.code for e in report.errors]
@@ -204,15 +206,17 @@ class TestDuplicateStops:
         """Duplicate (route_id, stop_sequence) produces an error."""
         rows = _minimal_rows()
         # Add a duplicate of stop 1
-        rows.append({
-            "route_id": "R001",
-            "stop_sequence": 1,
-            "latitude": 32.835,
-            "longitude": -96.765,
-            "stop_type": "delivery",
-            "service_time_minutes": 5.0,
-            "planned_start_time": "2025-01-15T08:00:00+00:00",
-        })
+        rows.append(
+            {
+                "route_id": "R001",
+                "stop_sequence": 1,
+                "latitude": 32.835,
+                "longitude": -96.765,
+                "stop_type": "delivery",
+                "service_time_minutes": 5.0,
+                "planned_start_time": "2025-01-15T08:00:00+00:00",
+            }
+        )
         csv_path = _write_csv(rows, tmp_path / "dup.csv")
 
         fleet, report = validate_csv(csv_path)
@@ -231,18 +235,22 @@ class TestTooManyRoutes:
         rows: list[dict[str, object]] = []
         for i in range(51):
             route_id = f"R{i:03d}"
-            rows.append({
-                "route_id": route_id,
-                "stop_sequence": 0,
-                "latitude": 32.825 + 0.001 * i,
-                "longitude": -96.775,
-            })
-            rows.append({
-                "route_id": route_id,
-                "stop_sequence": 1,
-                "latitude": 32.835 + 0.001 * i,
-                "longitude": -96.765,
-            })
+            rows.append(
+                {
+                    "route_id": route_id,
+                    "stop_sequence": 0,
+                    "latitude": 32.825 + 0.001 * i,
+                    "longitude": -96.775,
+                }
+            )
+            rows.append(
+                {
+                    "route_id": route_id,
+                    "stop_sequence": 1,
+                    "latitude": 32.835 + 0.001 * i,
+                    "longitude": -96.765,
+                }
+            )
         csv_path = _write_csv(rows, tmp_path / "many.csv")
 
         fleet, report = validate_csv(csv_path)
@@ -283,6 +291,7 @@ class TestSyntheticRoundTrip:
         """Synthetic CSV from generate_synthetic.py validates to a Fleet."""
         # Import and generate inline
         import sys
+
         sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
         from generate_synthetic import generate_synthetic
 

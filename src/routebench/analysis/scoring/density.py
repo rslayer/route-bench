@@ -72,8 +72,7 @@ def _convex_hull_area_sq_miles(coords: list[tuple[float, float]]) -> float:
     miles_per_deg_lon = miles_per_deg_lat * math.cos(math.radians(cx))
 
     points = [
-        ((lat - cx) * miles_per_deg_lat, (lon - cy) * miles_per_deg_lon)
-        for lat, lon in coords
+        ((lat - cx) * miles_per_deg_lat, (lon - cy) * miles_per_deg_lon) for lat, lon in coords
     ]
 
     hull = _convex_hull(points)

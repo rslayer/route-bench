@@ -44,20 +44,20 @@ def solve_tsptw(
     n_stops = len(route.stops)
     if n_stops == 0:
         return OptimalSequence(
-            stop_order=[], total_distance_meters=0.0,
-            total_time_seconds=0.0, optimality_gap=0.0,
+            stop_order=[],
+            total_distance_meters=0.0,
+            total_time_seconds=0.0,
+            optimality_gap=0.0,
         )
 
     if n_stops == 1:
-        dist = float(matrix.distances_array()[0, 1]) + float(
-            matrix.distances_array()[1, 0]
-        )
-        dur = float(matrix.durations_array()[0, 1]) + float(
-            matrix.durations_array()[1, 0]
-        )
+        dist = float(matrix.distances_array()[0, 1]) + float(matrix.distances_array()[1, 0])
+        dur = float(matrix.durations_array()[0, 1]) + float(matrix.durations_array()[1, 0])
         return OptimalSequence(
-            stop_order=[1], total_distance_meters=dist,
-            total_time_seconds=dur, optimality_gap=0.0,
+            stop_order=[1],
+            total_distance_meters=dist,
+            total_time_seconds=dur,
+            optimality_gap=0.0,
         )
 
     n_nodes = n_stops + 1  # depot + stops
@@ -104,9 +104,7 @@ def solve_tsptw(
     )
 
     # Warm-start: actual sequence as initial hint
-    initial_routes = [
-        [manager.NodeToIndex(i) for i in range(1, n_nodes)]
-    ]
+    initial_routes = [[manager.NodeToIndex(i) for i in range(1, n_nodes)]]
     routing.ReadAssignmentFromRoutes(initial_routes, True)
 
     # Search parameters
