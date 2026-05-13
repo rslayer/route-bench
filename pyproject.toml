@@ -22,15 +22,23 @@ dependencies = [
     "streamlit",
     "python-multipart",
     "httpx",
+    "fastapi>=0.115",
+    "uvicorn[standard]",
+    "aioboto3",
+    "sse-starlette",
+    "slowapi",
+    "sentry-sdk[fastapi]",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest",
     "pytest-cov",
+    "pytest-asyncio",
     "hypothesis",
     "mypy",
     "ruff",
+    "moto[s3]",
 ]
 
 [build-system]
@@ -67,7 +75,7 @@ packages = ["routebench"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["weasyprint.*", "staticmap.*", "vl_convert.*"]
+module = ["weasyprint.*", "staticmap.*", "vl_convert.*", "aioboto3.*", "aiobotocore.*", "sentry_sdk.*", "slowapi.*", "moto.*"]
 ignore_missing_imports = true
 
 [tool.pydantic-mypy]
