@@ -8,14 +8,11 @@ from datetime import UTC, datetime
 
 import structlog
 
+from routebench.core.config import CLAUDE_INPUT_PRICE_PER_M, CLAUDE_OUTPUT_PRICE_PER_M
 from routebench.infra.storage.base import StorageBackend
 from routebench.infra.telemetry import Telemetry
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger()
-
-# Claude pricing (per 1M tokens, as of 2025)
-_CLAUDE_INPUT_PRICE_PER_M = 3.0
-_CLAUDE_OUTPUT_PRICE_PER_M = 15.0
 
 
 class TelemetrySink:
@@ -37,8 +34,8 @@ class TelemetrySink:
         llm = summary.get("llm", {})
         input_tokens = int(llm.get("total_input_tokens", 0))
         output_tokens = int(llm.get("total_output_tokens", 0))
-        input_cost = input_tokens * _CLAUDE_INPUT_PRICE_PER_M / 1_000_000
-        output_cost = output_tokens * _CLAUDE_OUTPUT_PRICE_PER_M / 1_000_000
+        input_cost = input_tokens * CLAUDE_INPUT_PRICE_PER_M / 1_000_000
+        output_cost = output_tokens * CLAUDE_OUTPUT_PRICE_PER_M / 1_000_000
         total_cost = input_cost + output_cost
 
         # Enrich summary

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -22,7 +23,6 @@ from routebench.core.config import Settings
 from routebench.infra.matrix.osrm import OSRMMatrixProvider
 from routebench.infra.storage.base import StorageBackend
 from routebench.infra.storage.local import LocalStorageBackend
-from routebench.infra.telemetry import Telemetry
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger()
 
@@ -41,33 +41,69 @@ def _build_storage(settings: Settings) -> StorageBackend:
     return LocalStorageBackend(base_path=settings.storage_path)
 
 
+def _configure_logging(log_level: str) -> None:
+    """Configure structlog with JSON output for production, console for dev."""
+    level = getattr(logging, log_level.upper(), logging.INFO)
+    shared_processors: list[structlog.types.Processor] = [
+        structlog.contextvars.merge_contextvars,
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.add_logger_name,
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.UnicodeDecoder(),
+    ]
+
+    if level <= logging.DEBUG:
+        renderer: structlog.types.Processor = structlog.dev.ConsoleRenderer()
+    else:
+        renderer = structlog.processors.JSONRenderer()
+
+    structlog.configure(
+        processors=[*shared_processors, structlog.stdlib.ProcessorFormatter.wrap_for_formatter],
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
+        cache_logger_on_first_use=True,
+    )
+
+    formatter = structlog.stdlib.ProcessorFormatter(
+        processors=[*shared_processors, renderer],
+    )
+    handler = logging.StreamHandler()
+    handler.setFormatter(formatter)
+    root = logging.getLogger()
+    root.handlers.clear()
+    root.addHandler(handler)
+    root.setLevel(level)
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Create and configure the FastAPI application."""
     if settings is None:
         settings = Settings()
 
+    _configure_logging(settings.log_level)
     storage = _build_storage(settings)
     matrix_provider = OSRMMatrixProvider(host=settings.osrm_host)
     llm_client = LLMClient(api_key=settings.anthropic_api_key, model=settings.claude_model)
-    telemetry = Telemetry(session_id="global")
 
     deps = PipelineDeps(
         matrix_provider=matrix_provider,
         storage=storage,
         llm_client=llm_client,
-        telemetry=telemetry,
         settings=settings,
     )
 
     registry = SessionRegistry(storage=storage)
+    telemetry_sink = TelemetrySink(storage=storage)
+    budget_tracker = BudgetTracker(daily_budget_usd=settings.daily_budget_usd)
     worker = SessionWorker(
         deps=deps,
         registry=registry,
         max_queue_depth=settings.max_queue_depth,
         job_timeout_seconds=settings.job_timeout_seconds,
+        telemetry_sink=telemetry_sink,
+        budget_tracker=budget_tracker,
     )
-    telemetry_sink = TelemetrySink(storage=storage)
-    budget_tracker = BudgetTracker(daily_budget_usd=settings.daily_budget_usd)
     retention_job = RetentionJob(
         storage=storage,
         session_ttl_hours=settings.session_ttl_hours,

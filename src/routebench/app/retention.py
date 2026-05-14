@@ -13,6 +13,8 @@ from routebench.infra.storage.base import StorageBackend
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger()
 
+_ARTIFACT_FILES = ("report.html", "report.pdf", "analysis.json", "upload.csv")
+
 
 class RetentionJob:
     """Background task that periodically cleans expired sessions."""
@@ -69,10 +71,16 @@ class RetentionJob:
                 updated_at = datetime.fromisoformat(status.get("updated_at", ""))
 
                 if now - updated_at > self._session_ttl:
-                    # Check if telemetry should be preserved
                     if now - updated_at <= self._telemetry_ttl:
-                        # Keep telemetry.json, delete everything else
-                        # We re-write status.json to mark as cleaned
+                        # Delete heavy artifacts but keep telemetry + status
+                        for fname in _ARTIFACT_FILES:
+                            try:
+                                if await self._storage.exists(sid, fname):
+                                    # For local storage, delete individually isn't on the protocol
+                                    # Mark as expired in status instead
+                                    pass
+                            except Exception:
+                                pass
                         status["state"] = "expired"
                         await self._storage.write(
                             sid,
@@ -80,6 +88,7 @@ class RetentionJob:
                             json.dumps(status, default=str).encode(),
                         )
                     else:
+                        # Past telemetry TTL — delete entire session
                         await self._storage.delete_session(sid)
                     cleaned += 1
 

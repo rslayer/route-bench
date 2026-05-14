@@ -23,23 +23,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 def generate_grid_csv(n_routes: int, density: str) -> bytes:
     """Generate synthetic CSV data for benchmarking."""
-    from routebench.scripts_helpers import generate_synthetic_csv
-
-    # Try to use the generate_synthetic script
     from io import StringIO
 
-    import polars as pl
-
-    from scripts.generate_synthetic import generate_fleet_csv
-
-    try:
-        csv_path = Path(f"/tmp/bench_{n_routes}_{density}.csv")
-        generate_fleet_csv(n_routes=n_routes, density=density, output=csv_path)
-        return csv_path.read_bytes()
-    except Exception:
-        pass
-
-    # Fallback: minimal synthetic CSV
     rows = []
     base_lat, base_lon = 32.78, -96.80
 
@@ -49,16 +34,18 @@ def generate_grid_csv(n_routes: int, density: str) -> bytes:
     for r in range(n_routes):
         route_id = f"R-{r:03d}"
         for s in range(n_stops):
-            rows.append({
-                "route_id": route_id,
-                "stop_sequence": s,
-                "latitude": round(base_lat + (s * 0.01) + (r * 0.05), 6),
-                "longitude": round(base_lon + (s * 0.01) - (r * 0.05), 6),
-                "planned_arrival": f"2024-01-15T{8 + s // 4:02d}:{(s * 15) % 60:02d}:00",
-                "planned_departure": f"2024-01-15T{8 + s // 4:02d}:{(s * 15) % 60 + 5:02d}:00",
-                "service_minutes": 5,
-                "units": 1,
-            })
+            rows.append(
+                {
+                    "route_id": route_id,
+                    "stop_sequence": s,
+                    "latitude": round(base_lat + (s * 0.01) + (r * 0.05), 6),
+                    "longitude": round(base_lon + (s * 0.01) - (r * 0.05), 6),
+                    "planned_arrival": f"2024-01-15T{8 + s // 4:02d}:{(s * 15) % 60:02d}:00",
+                    "planned_departure": f"2024-01-15T{8 + s // 4:02d}:{(s * 15) % 60 + 5:02d}:00",
+                    "service_minutes": 5,
+                    "units": 1,
+                }
+            )
 
     output = StringIO()
     writer = csv.DictWriter(output, fieldnames=rows[0].keys())
@@ -67,7 +54,9 @@ def generate_grid_csv(n_routes: int, density: str) -> bytes:
     return output.getvalue().encode()
 
 
-def run_benchmark(api_url: str, n_routes: int, density: str, timeout: int = 600) -> dict[str, object]:
+def run_benchmark(
+    api_url: str, n_routes: int, density: str, timeout: int = 600
+) -> dict[str, object]:
     """Run a single benchmark and return metrics."""
     csv_data = generate_grid_csv(n_routes, density)
 
@@ -129,11 +118,7 @@ def main() -> None:
     parser.add_argument("--output", default="benchmark_results.csv", help="Output CSV path")
     args = parser.parse_args()
 
-    grid = [
-        (n, d)
-        for n in [5, 15, 30, 50]
-        for d in ["sparse", "normal", "dense"]
-    ]
+    grid = [(n, d) for n in [5, 15, 30, 50] for d in ["sparse", "normal", "dense"]]
 
     results = []
     for n_routes, density in grid:

@@ -1,4 +1,9 @@
-"""Streamlit UI for RouteBench."""
+"""Streamlit UI for RouteBench.
+
+Uses HTTP polling (GET /sessions/{id}) rather than SSE because Streamlit's
+st.rerun() model does not support persistent streaming connections.  The 1-second
+poll interval is intentional — it balances responsiveness with server load.
+"""
 
 from __future__ import annotations
 

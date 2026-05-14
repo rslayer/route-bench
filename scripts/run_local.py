@@ -30,7 +30,7 @@ async def main() -> None:
         sys.exit(1)
 
     from routebench.agent.client import LLMClient
-    from routebench.app.pipeline import PipelineDeps, SessionResult, run_session
+    from routebench.app.pipeline import PipelineDeps, run_session
     from routebench.app.sessions import SessionState
     from routebench.core.config import AnalysisConfig, Settings
     from routebench.infra.matrix.osrm import OSRMMatrixProvider
@@ -38,12 +38,12 @@ async def main() -> None:
     from routebench.infra.telemetry import Telemetry
 
     settings = Settings()
-    session_id = uuid.uuid4().hex[:16]
+    session_id = uuid.uuid4().hex
     output_dir = args.output / session_id
     output_dir.mkdir(parents=True, exist_ok=True)
 
     storage = LocalStorageBackend(base_path=str(args.output))
-    matrix_provider = OSRMMatrixProvider(base_url=settings.osrm_host)
+    matrix_provider = OSRMMatrixProvider(host=settings.osrm_host)
     llm_client = LLMClient(api_key=settings.anthropic_api_key, model=settings.claude_model)
     telemetry = Telemetry(session_id=session_id)
 
@@ -51,7 +51,6 @@ async def main() -> None:
         matrix_provider=matrix_provider,
         storage=storage,
         llm_client=llm_client,
-        telemetry=telemetry,
         settings=settings,
     )
 
@@ -73,6 +72,7 @@ async def main() -> None:
         upload_path=args.csv_path,
         config=config,
         deps=deps,
+        telemetry=telemetry,
         on_progress=on_progress,
     )
 

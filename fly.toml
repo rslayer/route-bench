@@ -1,4 +1,9 @@
 # fly.toml — main RouteBench app
+#
+# Streamlit (port 8501) is exposed as a raw TCP service.  In production,
+# add a reverse proxy (Nginx/Caddy) or use Fly's http_service with path
+# routing to serve both FastAPI and Streamlit under a single domain.
+# For now, Streamlit is accessible directly on port 8501.
 
 app = "routebench"
 primary_region = "dfw"

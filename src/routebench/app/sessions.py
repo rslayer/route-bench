@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime
 from typing import Literal
@@ -21,6 +22,7 @@ SessionState = Literal[
     "rendering",
     "succeeded",
     "failed",
+    "expired",
 ]
 
 
@@ -143,14 +145,18 @@ class SessionRegistry:
 
     async def list_all(self, since: datetime | None = None) -> list[SessionStatus]:
         """List all sessions from storage, optionally filtering by date."""
-        results: list[SessionStatus] = []
         session_ids = await self._storage.list_sessions()
-        for sid in session_ids:
+
+        async def _load(sid: str) -> SessionStatus | None:
             try:
                 data = await self._storage.read(sid, "status.json")
                 status = SessionStatus.model_validate_json(data)
                 if since is None or status.created_at >= since:
-                    results.append(status)
+                    return status
             except (FileNotFoundError, json.JSONDecodeError):
-                continue
+                pass
+            return None
+
+        loaded = await asyncio.gather(*[_load(sid) for sid in session_ids])
+        results = [s for s in loaded if s is not None]
         return sorted(results, key=lambda s: s.created_at, reverse=True)

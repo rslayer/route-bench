@@ -8,3 +8,23 @@ services:
       - ./osrm-data:/data
     command: osrm-routed --algorithm mld /data/region.osrm
     restart: unless-stopped
+
+  app:
+    build: .
+    container_name: routebench-app
+    ports:
+      - "8000:8000"
+      - "8501:8501"
+    env_file: .env
+    environment:
+      - OSRM_HOST=http://osrm:5000
+      - STORAGE_BACKEND=local
+      - STORAGE_PATH=/data/sessions
+    volumes:
+      - app-data:/data
+    depends_on:
+      - osrm
+    restart: unless-stopped
+
+volumes:
+  app-data:

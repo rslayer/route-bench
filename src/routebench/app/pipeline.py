@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 import structlog
 
@@ -23,8 +23,13 @@ from routebench.app.sessions import (
     SessionArtifacts,
     SessionState,
 )
-from routebench.core.config import AnalysisConfig, Settings
-from routebench.core.exceptions import RouteBenchError
+from routebench.core.config import (
+    CLAUDE_INPUT_PRICE_PER_M,
+    CLAUDE_OUTPUT_PRICE_PER_M,
+    AnalysisConfig,
+    Settings,
+)
+from routebench.core.exceptions import BudgetExceededError, RouteBenchError
 from routebench.core.validation import validate_csv
 from routebench.infra.matrix.base import MatrixProvider
 from routebench.infra.storage.base import StorageBackend
@@ -43,7 +48,6 @@ class PipelineDeps:
     matrix_provider: MatrixProvider
     storage: StorageBackend
     llm_client: LLMClient
-    telemetry: Telemetry
     settings: Settings
 
 
@@ -58,7 +62,7 @@ class SessionResult:
     error_message: str | None = None
 
 
-ProgressCallback = Any  # Callable that accepts (state, progress_pct, stage_detail)
+ProgressCallback = Callable[[SessionState, int, str], Awaitable[None]]
 
 
 async def run_session(
@@ -66,6 +70,7 @@ async def run_session(
     upload_path: Path,
     config: AnalysisConfig,
     deps: PipelineDeps,
+    telemetry: Telemetry | None = None,
     on_progress: ProgressCallback | None = None,
 ) -> SessionResult:
     """Run the full pipeline: validate -> orchestrate -> write -> verify -> render -> persist."""
@@ -73,6 +78,20 @@ async def run_session(
     async def _emit(state: SessionState, pct: int, detail: str) -> None:
         if on_progress is not None:
             await on_progress(state, pct, detail)
+
+    session_telemetry = telemetry or Telemetry(session_id=session_id)
+    max_input_tokens = deps.settings.max_input_tokens_per_session
+
+    def _check_token_cap() -> None:
+        """Raise BudgetExceededError if cumulative input tokens exceed the cap."""
+        total_input = sum(c.input_tokens for c in session_telemetry.llm_calls)
+        if total_input > max_input_tokens:
+            raise BudgetExceededError(
+                f"Session input token cap exceeded: {total_input}/{max_input_tokens}",
+                budget_type="session_input_tokens",
+                limit=float(max_input_tokens),
+                current=float(total_input),
+            )
 
     try:
         # Stage 1: Validate CSV
@@ -97,9 +116,10 @@ async def run_session(
             client=deps.llm_client,
             config=config,
             matrix_provider=deps.matrix_provider,
-            telemetry=deps.telemetry,
+            telemetry=session_telemetry,
         )
         analysis = await asyncio.to_thread(orchestrator.run, fleet)
+        _check_token_cap()
         await _emit("analyzing", 45, f"Analysis complete: {len(analysis.findings)} findings")
 
         # Stage 3: Write prose
@@ -108,6 +128,7 @@ async def run_session(
         slots = identify_prose_slots(analysis)
         writer = ReportWriter(client=deps.llm_client)
         prose = await asyncio.to_thread(writer.fill_slots, slots)
+        _check_token_cap()
         await _emit("writing", 65, f"Prose generated for {len(prose)} slots")
 
         # Stage 4: Verify prose
@@ -145,17 +166,16 @@ async def run_session(
         analysis_data = analysis.model_dump_json(indent=2).encode()
         await storage.write(session_id, "analysis.json", analysis_data)
 
-        telemetry_data = json.dumps(deps.telemetry.summary(), indent=2).encode()
+        telemetry_data = json.dumps(session_telemetry.summary(), indent=2).encode()
         await storage.write(session_id, "telemetry.json", telemetry_data)
 
         # Build cost summary from telemetry
-        telem_summary = deps.telemetry.summary()
+        telem_summary = session_telemetry.summary()
         llm_data = telem_summary.get("llm", {})
         input_tokens = int(llm_data.get("total_input_tokens", 0))
         output_tokens = int(llm_data.get("total_output_tokens", 0))
-        # Claude pricing estimates (per 1M tokens)
-        input_cost = input_tokens * 3.0 / 1_000_000
-        output_cost = output_tokens * 15.0 / 1_000_000
+        input_cost = input_tokens * CLAUDE_INPUT_PRICE_PER_M / 1_000_000
+        output_cost = output_tokens * CLAUDE_OUTPUT_PRICE_PER_M / 1_000_000
         llm_cost = input_cost + output_cost
 
         cost = CostSummary(
