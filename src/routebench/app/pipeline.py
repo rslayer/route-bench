@@ -32,6 +32,7 @@ from routebench.core.config import (
 from routebench.core.exceptions import BudgetExceededError, RouteBenchError
 from routebench.core.validation import validate_csv
 from routebench.infra.matrix.base import MatrixProvider
+from routebench.infra.matrix.traffic import TrafficAdjustedProvider
 from routebench.infra.storage.base import StorageBackend
 from routebench.infra.telemetry import Telemetry
 from routebench.report.document import ReportDocument
@@ -112,10 +113,23 @@ async def run_session(
 
         # Stage 2: Orchestrate analysis
         await _emit("analyzing", 15, "Running analysis orchestrator")
+
+        # The matrix provider is a process-wide singleton but the traffic profile
+        # is chosen per upload, so band here rather than at the composition root.
+        matrix_provider = deps.matrix_provider
+        if config.traffic.is_active:
+            matrix_provider = TrafficAdjustedProvider(deps.matrix_provider, config.traffic)
+            logger.info(
+                "traffic_profile_active",
+                session_id=session_id,
+                profile_hash=config.traffic.profile_hash(),
+                n_bands=len(config.traffic.bands),
+            )
+
         orchestrator = AnalysisOrchestrator(
             client=deps.llm_client,
             config=config,
-            matrix_provider=deps.matrix_provider,
+            matrix_provider=matrix_provider,
             telemetry=session_telemetry,
         )
         analysis = await asyncio.to_thread(orchestrator.run, fleet)

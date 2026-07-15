@@ -41,6 +41,14 @@ def solve_vrptw(
     The combined_matrix should be a single (1+total_stops) x (1+total_stops) matrix
     where index 0 is the shared depot and indices 1..N are all stops across all routes.
 
+    The optimum is computed on whatever durations `combined_matrix` carries, so
+    passing a traffic-adjusted matrix grades this benchmark on the same clock as
+    the plan. Note for whoever builds that combined matrix: banding is per origin
+    (see infra.matrix.traffic), and while each stop row has an unambiguous
+    departure time from its own route's schedule, depot row 0 is shared across
+    every vehicle and each route has its own planned_start_time. One factor must
+    be chosen for it — OR-Tools arc costs are per node pair, not per vehicle.
+
     Args:
         fleet: The fleet to optimize.
         combined_matrix: Combined distance/duration matrix.

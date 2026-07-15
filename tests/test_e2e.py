@@ -112,12 +112,14 @@ class TestE2EPipeline:
         # Mock matrix provider returns realistic matrices
         mock_provider = MagicMock()
         mock_provider.name = "mock"
-        mock_provider.get_matrix.side_effect = lambda origins, dests: mock_matrix_realistic(
-            len(origins)
+        mock_provider.get_matrix.side_effect = lambda origins, dests, *args, **kwargs: (
+            mock_matrix_realistic(len(origins))
         )
 
         with patch("routebench.agent.orchestrator.get_route_matrix") as mock_grm:
-            mock_grm.side_effect = lambda route, _prov: mock_matrix_realistic(len(route.stops) + 1)
+            mock_grm.side_effect = lambda route, *args, **kwargs: mock_matrix_realistic(
+                len(route.stops) + 1
+            )
 
             orch = AnalysisOrchestrator(
                 client=mock_client,
@@ -156,8 +158,8 @@ class TestE2EPipeline:
 
         fleet = _build_test_fleet()
         mock_provider = MagicMock()
-        mock_provider.get_matrix.side_effect = lambda origins, dests: mock_matrix_realistic(
-            len(origins)
+        mock_provider.get_matrix.side_effect = lambda origins, dests, *args, **kwargs: (
+            mock_matrix_realistic(len(origins))
         )
 
         config = AnalysisConfig()

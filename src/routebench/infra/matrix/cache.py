@@ -36,15 +36,29 @@ def compute_cache_key(
     origins: list[tuple[float, float]],
     destinations: list[tuple[float, float]],
     departure_time: datetime | None = None,
+    profile_hash: str | None = None,
+    origin_departure_times: list[datetime] | None = None,
 ) -> str:
-    """Compute a stable cache key from coordinates and departure time."""
+    """Compute a stable cache key from coordinates and departure time.
+
+    When this cache wraps a traffic-adjusted provider it stores banded matrices,
+    so the key must separate them: `profile_hash` keeps two profiles apart, and
+    `origin_departure_times` keeps two runs of the same profile apart (identical
+    coordinates departing at different times band differently).
+
+    Both are keyed in only when present, so free-flow keys are unchanged.
+    """
     rounded_origins = _round_coords(origins)
     rounded_destinations = _round_coords(destinations)
-    payload = {
+    payload: dict[str, object] = {
         "origins": rounded_origins,
         "destinations": rounded_destinations,
         "time_bucket": _time_bucket(departure_time),
     }
+    if profile_hash is not None:
+        payload["profile_hash"] = profile_hash
+    if origin_departure_times:
+        payload["origin_departure_times"] = [dt.isoformat() for dt in origin_departure_times]
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(raw.encode()).hexdigest()
 
@@ -63,18 +77,36 @@ class CachedMatrixProvider:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.name = f"cached_{backend.name}"
 
+    def _backend_profile_hash(self) -> str | None:
+        """Profile hash of the wrapped backend, if it applies a traffic profile.
+
+        Duck-typed rather than imported: `infra.matrix.cache` should not depend
+        on the traffic layer to cache correctly when composed beneath it.
+        """
+        profile_hash = getattr(self.backend, "profile_hash", None)
+        if callable(profile_hash):
+            return str(profile_hash())
+        return None
+
     def get_matrix(
         self,
         origins: list[tuple[float, float]],
         destinations: list[tuple[float, float]],
         departure_time: datetime | None = None,
+        origin_departure_times: list[datetime] | None = None,
     ) -> MatrixResult:
         """Get matrix from cache or backend.
 
         Returns a cached result if available; otherwise queries the backend,
         caches the result, and returns it.
         """
-        key = compute_cache_key(origins, destinations, departure_time)
+        key = compute_cache_key(
+            origins,
+            destinations,
+            departure_time,
+            profile_hash=self._backend_profile_hash(),
+            origin_departure_times=origin_departure_times,
+        )
         cache_path = self.cache_dir / f"{key}.json"
 
         if cache_path.exists():
@@ -89,7 +121,9 @@ class CachedMatrixProvider:
             )
 
         logger.info("matrix_cache_miss", key=key[:12])
-        result = self.backend.get_matrix(origins, destinations, departure_time)
+        result = self.backend.get_matrix(
+            origins, destinations, departure_time, origin_departure_times
+        )
 
         # Write to cache
         cache_data = {

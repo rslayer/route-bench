@@ -66,8 +66,8 @@ def compute_scorecard(
     for route in fleet.routes:
         logger.info("scoring_route", route_id=route.route_id)
 
-        # Get the matrix for this route
-        matrix = get_route_matrix(route, matrix_provider)
+        # Get the matrix for this route (traffic-adjusted if the provider bands)
+        matrix = get_route_matrix(route, matrix_provider, work_rules)
 
         # Distance metrics
         dist_metrics = compute_distance_metrics(route, matrix)

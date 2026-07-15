@@ -46,6 +46,7 @@ class OSRMMatrixProvider:
         origins: list[tuple[float, float]],
         destinations: list[tuple[float, float]],
         departure_time: datetime | None = None,
+        origin_departure_times: list[datetime] | None = None,
     ) -> MatrixResult:
         """Query OSRM for an origin-destination matrix.
 
@@ -53,6 +54,9 @@ class OSRMMatrixProvider:
             origins: List of (lat, lon) tuples.
             destinations: List of (lat, lon) tuples.
             departure_time: Accepted but ignored in v1 (OSRM limitation).
+            origin_departure_times: Accepted but ignored — OSRM returns free-flow
+                times. Wrap this provider in TrafficAdjustedProvider to apply
+                time-of-day banding.
 
         Returns:
             MatrixResult with durations (seconds) and distances (meters).

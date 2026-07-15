@@ -12,6 +12,51 @@
     and assumed speed), service time per stop, idle/wait time at time windows, lunch break
     insertion after the configured threshold, and post-trip time.</p>
 
+    {% set traffic = metadata.get('traffic_profile', {}) if metadata else {} %}
+    {% if traffic.get('active') %}
+    <p><strong>Travel times:</strong> Road-network travel times are <em>free-flow</em> estimates
+    from OSRM, adjusted by the configured traffic profile. They are <strong>not</strong> live or
+    historical traffic data. Each leg is scaled by the speed factor of the band containing the
+    vehicle's estimated departure time from that leg's origin:</p>
+    <table class="metrics-table">
+      <thead>
+        <tr><th>Window (local)</th><th>Speed factor</th><th>Effect on travel time</th></tr>
+      </thead>
+      <tbody>
+        {% for band in traffic.get('bands', []) %}
+        <tr>
+          <td>{{ band.start }}&ndash;{{ band.end }}</td>
+          <td>{{ '%.2f' | format(band.speed_factor) }}&times;</td>
+          <td>{{ '%+.0f' | format((1.0 / band.speed_factor - 1.0) * 100) }}%</td>
+        </tr>
+        {% endfor %}
+        <tr>
+          <td>All other times</td>
+          <td>{{ '%.2f' | format(traffic.get('default_factor', 1.0)) }}&times;</td>
+          <td>{{ '%+.0f' | format((1.0 / traffic.get('default_factor', 1.0) - 1.0) * 100) }}%</td>
+        </tr>
+      </tbody>
+    </table>
+    <p><strong>Band assignment (single-pass approximation):</strong> Each leg's band is assigned
+    from the plan's estimated departure times, propagated from the planned start time through
+    free-flow travel and service time. Because applying the profile lengthens travel, the true
+    departure times shift later than the free-flow estimates used to assign the bands; this pass
+    is deliberately <em>not</em> iterated to a fixed point. Legs departing near a band boundary
+    may therefore be assigned the adjacent band, and a leg is banded by its departure time only
+    &mdash; a leg that starts before a peak band and runs into it is not split.</p>
+    <p>Plan grading and the benchmark optimum are computed on this same adjusted matrix, so the
+    comparison between them is internally consistent. Distances are unaffected by the profile.</p>
+    {% else %}
+    <p><strong>Travel times:</strong> Road-network travel times are <em>free-flow</em> estimates
+    from OSRM, based on static road attributes with no time-of-day variation. No traffic profile
+    was applied. They are <strong>not</strong> live or historical traffic data.</p>
+    <p>Comparative results (plan vs. optimal, route vs. fleet median) largely cancel this bias,
+    since both sides share the same clock. Absolute results do not: time-window compliance and
+    shift-overrun minutes are computed against optimistic travel times, so violations and
+    overruns should be read as <strong>lower bounds</strong>. Congestion can only push arrivals
+    later, never earlier.</p>
+    {% endif %}
+
     <p><strong>Benchmark optimization:</strong> Uses Google OR-Tools TSPTW solver for single-route
     optimization and VRPTW solver for fleet-level optimization. Solutions are time-limited
     and may not be globally optimal.</p>

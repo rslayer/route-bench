@@ -156,6 +156,46 @@ Key environment variables (see `.env.example`):
 | `ADMIN_TOKEN` | — | Admin API auth token |
 | `SENTRY_DSN` | — | Sentry error tracking |
 
+### Traffic profiles
+
+OSRM returns **free-flow** travel times — static road attributes, no time-of-day
+variation. A traffic profile scales those times by a speed factor per time band,
+so time-window compliance and shift overruns are graded on a realistic clock.
+This is *not* live or historical traffic data.
+
+Pass a profile per upload in the `config` JSON of `POST /sessions`. Use the
+shipped `urban_us` profile (0.75× speed 07:00–09:00, 0.80× 16:00–18:30):
+
+```json
+{ "traffic": "urban_us" }
+```
+
+Or define bands inline (`start` inclusive, `end` exclusive, local wall-clock;
+`speed_factor` below 1.0 slows travel):
+
+```json
+{
+  "traffic": {
+    "bands": [
+      { "start": "07:00", "end": "09:00", "speed_factor": 0.75 },
+      { "start": "16:00", "end": "18:30", "speed_factor": 0.80 }
+    ],
+    "default_factor": 1.0
+  }
+}
+```
+
+Omitting `traffic` keeps free-flow behavior, and the report says so. Notes:
+
+- **Distances are never changed** — only durations. Distance metrics and the
+  sequencing index are identical with and without a profile.
+- **Band assignment is a single-pass approximation.** Each leg is banded by its
+  origin's departure time, estimated from the plan's free-flow schedule and not
+  iterated to a fixed point. The methodology page discloses this.
+- **Timestamps are read as depot-local wall clock**, consistent with how time
+  windows are already interpreted. Uploading UTC timestamps for a depot in
+  another timezone will band the wrong hours.
+
 ## Deployment
 
 ### Fly.io

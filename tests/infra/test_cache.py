@@ -20,6 +20,7 @@ class FakeMatrixProvider:
         origins: list[tuple[float, float]],
         destinations: list[tuple[float, float]],
         departure_time: datetime | None = None,
+        origin_departure_times: list[datetime] | None = None,
     ) -> MatrixResult:
         self.call_count += 1
         n_o = len(origins)
