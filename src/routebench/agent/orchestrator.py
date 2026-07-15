@@ -9,12 +9,14 @@ import structlog
 
 from routebench.agent.client import LLMClient
 from routebench.agent.tool_specs import build_tool_specs
+from routebench.analysis.benchmark.fleet_matrix import get_fleet_matrix
 from routebench.analysis.scoring import compute_scorecard
 from routebench.analysis.scoring.distance import get_route_matrix
 from routebench.analysis.tools import TOOLS, AnalysisTool
 from routebench.core.config import AnalysisConfig
 from routebench.core.findings import (
     AnalysisReport,
+    BenchmarkResult,
     Finding,
     FleetMetrics,
     RouteMetrics,
@@ -69,6 +71,37 @@ class AnalysisOrchestrator:
         self._config = config or AnalysisConfig()
         self._matrix_provider = matrix_provider
         self._telemetry = telemetry
+        self._fleet_matrix_cache: MatrixResult | None = None
+
+    def _fleet_matrix(self, fleet: Fleet) -> MatrixResult:
+        """Combined fleet matrix, built on first use and reused thereafter.
+
+        Spans every stop in the fleet, so it is a far larger fetch than the
+        per-route matrices. Built lazily because it is wasted work unless the
+        orchestrator actually calls the fleet benchmark.
+        """
+        if self._fleet_matrix_cache is None:
+            if self._matrix_provider is None:
+                msg = "matrix_provider is required for the fleet benchmark"
+                raise ValueError(msg)
+            self._fleet_matrix_cache = get_fleet_matrix(
+                fleet,
+                self._matrix_provider,
+                self._config.work_rules,
+            )
+        return self._fleet_matrix_cache
+
+    @staticmethod
+    def _assemble_benchmark(sink: dict[str, object]) -> BenchmarkResult | None:
+        """Build BenchmarkResult from whatever the benchmark tools deposited."""
+        per_route = sink.get("per_route") or {}
+        fleet_level = sink.get("fleet_level")
+        if not per_route and fleet_level is None:
+            return None
+        return BenchmarkResult(
+            per_route=per_route,  # type: ignore[arg-type]
+            fleet_level=fleet_level,  # type: ignore[arg-type]
+        )
 
     def run(self, fleet: Fleet) -> AnalysisReport:
         """Run the full analysis pipeline."""
@@ -95,6 +128,9 @@ class AnalysisOrchestrator:
         available_tools: list[AnalysisTool] = []
         skipped: list[tuple[str, str]] = []
         for tool in TOOLS.values():
+            if getattr(tool, "is_benchmark", False) and not self._config.include_benchmark:
+                skipped.append((tool.name, "benchmarking disabled by include_benchmark"))
+                continue
             check = tool.applicability_check(fleet)
             if check.is_applicable:
                 available_tools.append(tool)
@@ -104,6 +140,9 @@ class AnalysisOrchestrator:
         # Step 3: LLM-driven tool selection loop
         findings: list[Finding] = []
         analyses_run: list[str] = []
+        # Tools solve once and deposit their structured benchmarks here, so the
+        # report can render them without re-running the solvers.
+        benchmark_sink: dict[str, object] = {}
         tool_specs = build_tool_specs(available_tools)
 
         system_prompt = _load_prompt("orchestrator")
@@ -150,18 +189,31 @@ class AnalysisOrchestrator:
                         findings,
                         analyses_run,
                         skipped,
+                        self._assemble_benchmark(benchmark_sink),
                     )
 
                 if tool_name in TOOLS:
                     tool = TOOLS[tool_name]
                     try:
-                        tool_findings = tool.run(
-                            fleet,
-                            matrices=per_route_matrices,
-                            matrix_provider=self._matrix_provider,
-                            work_rules=self._config.work_rules,
-                            traffic_profile=self._config.traffic,
-                        )
+                        tool_kwargs: dict[str, Any] = {
+                            "matrices": per_route_matrices,
+                            "matrix_provider": self._matrix_provider,
+                            "work_rules": self._config.work_rules,
+                            "traffic_profile": self._config.traffic,
+                            "benchmark_sink": benchmark_sink,
+                        }
+                        if getattr(tool, "is_benchmark", False):
+                            # Solvers spend their limit in full, so these must
+                            # come from config rather than the tools' defaults.
+                            tool_kwargs["time_limit_s"] = (
+                                self._config.fleet_benchmark_time_limit_s
+                                if getattr(tool, "requires_fleet_matrix", False)
+                                else self._config.route_benchmark_time_limit_s
+                            )
+                        if getattr(tool, "requires_fleet_matrix", False):
+                            tool_kwargs["combined_matrix"] = self._fleet_matrix(fleet)
+
+                        tool_findings = tool.run(fleet, **tool_kwargs)
                         findings.extend(tool_findings)
                         analyses_run.append(tool_name)
 
@@ -204,6 +256,7 @@ class AnalysisOrchestrator:
             findings,
             analyses_run,
             skipped,
+            self._assemble_benchmark(benchmark_sink),
         )
 
     def _build_report(
@@ -214,13 +267,14 @@ class AnalysisOrchestrator:
         findings: list[Finding],
         analyses_run: list[str],
         analyses_skipped: list[tuple[str, str]],
+        benchmark: BenchmarkResult | None = None,
     ) -> AnalysisReport:
         return AnalysisReport(
             fleet=fleet,
             fleet_metrics=fleet_metrics,
             route_metrics=route_metrics,
             findings=findings,
-            benchmark=None,
+            benchmark=benchmark,
             analyses_run=analyses_run,
             analyses_skipped=analyses_skipped,
             metadata={

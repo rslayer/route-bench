@@ -12,6 +12,7 @@ from routebench.analysis.benchmark.compare import (
     compute_fleet_benchmark,
     compute_route_benchmark,
 )
+from routebench.analysis.benchmark.fleet_matrix import MAX_FLEET_BENCHMARK_STOPS
 from routebench.analysis.benchmark.tsptw import solve_tsptw
 from routebench.analysis.benchmark.vrptw import solve_vrptw
 from routebench.analysis.tools import TOOLS
@@ -326,8 +327,45 @@ class TestBenchmarkTools:
         fleet = _make_fleet(_make_route("R1", stops))
         assert tool.applicability_check(fleet).is_applicable
 
-    def test_fleet_benchmark_tool_always_applicable(self) -> None:
+    def test_fleet_benchmark_applies_to_a_multi_route_fleet(self) -> None:
         tool = FleetBenchmarkTool()
-        stops = [_make_stop("R1", 1, 32.83, -96.77)]
-        fleet = _make_fleet(_make_route("R1", stops))
+        fleet = _make_fleet(
+            _make_route("R1", [_make_stop("R1", 1, 32.83, -96.77)]),
+            _make_route("R2", [_make_stop("R2", 1, 32.84, -96.78)]),
+        )
         assert tool.applicability_check(fleet).is_applicable
+
+    def test_fleet_benchmark_skips_single_route_fleet(self) -> None:
+        """Cross-route optimization on one route is just the per-route TSPTW."""
+        tool = FleetBenchmarkTool()
+        fleet = _make_fleet(_make_route("R1", [_make_stop("R1", 1, 32.83, -96.77)]))
+        check = tool.applicability_check(fleet)
+        assert not check.is_applicable
+        assert "at least 2 routes" in check.reason
+
+    def test_fleet_benchmark_skips_fleet_without_one_shared_depot(self) -> None:
+        """solve_vrptw models a single depot node for every vehicle."""
+        tool = FleetBenchmarkTool()
+        fleet = _make_fleet(
+            _make_route("R1", [_make_stop("R1", 1, 32.83, -96.77)], depot_lat=32.825),
+            _make_route("R2", [_make_stop("R2", 1, 32.84, -96.78)], depot_lat=33.900),
+        )
+        check = tool.applicability_check(fleet)
+        assert not check.is_applicable
+        assert "share a single depot" in check.reason
+
+    def test_fleet_benchmark_skips_fleet_above_stop_cap(self) -> None:
+        """The matrix grows quadratically and OR-Tools degrades; refuse instead."""
+        tool = FleetBenchmarkTool()
+        routes = [
+            _make_route(
+                f"R{r}",
+                [_make_stop(f"R{r}", i, 32.83 + i * 0.001, -96.77) for i in range(1, 41)],
+            )
+            for r in range(1, 9)
+        ]
+        fleet = _make_fleet(*routes)
+        assert fleet.total_stops() > MAX_FLEET_BENCHMARK_STOPS
+        check = tool.applicability_check(fleet)
+        assert not check.is_applicable
+        assert "cap for fleet-level VRPTW" in check.reason
