@@ -46,6 +46,14 @@
     &mdash; a leg that starts before a peak band and runs into it is not split.</p>
     <p>Plan grading and the benchmark optimum are computed on this same adjusted matrix, so the
     comparison between them is internally consistent. Distances are unaffected by the profile.</p>
+    {% if benchmark and benchmark.fleet_level %}
+    <p><strong>Fleet-level banding:</strong> In the cross-route (VRPTW) benchmark, each stop is
+    banded by its own route's schedule. The depot is shared by every vehicle, but each route has
+    its own start time and the solver costs each leg once regardless of which vehicle drives it,
+    so a single factor is applied to all depot departures &mdash; taken from the median route
+    start time. This affects only the depot-to-first-stop leg of routes starting in a different
+    band from the median.</p>
+    {% endif %}
     {% else %}
     <p><strong>Travel times:</strong> Road-network travel times are <em>free-flow</em> estimates
     from OSRM, based on static road attributes with no time-of-day variation. No traffic profile

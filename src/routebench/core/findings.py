@@ -9,12 +9,15 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-if TYPE_CHECKING:
-    from routebench.core.schemas import Fleet
+# Imported at runtime, not under TYPE_CHECKING: AnalysisReport.fleet needs Fleet
+# resolvable when the class is built, or the model stays "not fully defined"
+# until something happens to call model_rebuild(). core.schemas imports nothing
+# from this module, so there is no cycle to dodge.
+from routebench.core.schemas import Fleet
 
 FindingCategory = Literal[
     "sequencing",
@@ -151,10 +154,15 @@ class FleetBenchmark(BaseModel):
 
 
 class BenchmarkResult(BaseModel):
-    """Combined benchmark results."""
+    """Combined benchmark results.
 
-    per_route: dict[str, RouteBenchmark]
-    fleet_level: FleetBenchmark
+    `fleet_level` is absent when the per-route benchmark ran but the fleet-level
+    VRPTW did not — it is skipped for single-route fleets, fleets whose routes do
+    not share one depot, and fleets above the solver's stop cap.
+    """
+
+    per_route: dict[str, RouteBenchmark] = Field(default_factory=dict)
+    fleet_level: FleetBenchmark | None = None
 
 
 class AnalysisReport(BaseModel):

@@ -3,12 +3,15 @@
 Usage:
     uv run python scripts/run_local.py data/synthetic/sample.csv
     uv run python scripts/run_local.py data/synthetic/sample.csv --output ./output
+    uv run python scripts/run_local.py data/synthetic/sample.csv \
+        --config '{"traffic": "urban_us", "include_pdf": true}'
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import sys
 import uuid
 from pathlib import Path
@@ -23,6 +26,15 @@ async def main() -> None:
     parser.add_argument("--output", type=Path, default=Path("./output"), help="Output directory")
     parser.add_argument("--include-pdf", action="store_true", help="Generate PDF report")
     parser.add_argument("--include-benchmark", action="store_true", default=True)
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help=(
+            "AnalysisConfig as JSON, matching the API's config field. "
+            'Anything set here wins over the flags, e.g. \'{"traffic": "urban_us"}\''
+        ),
+    )
     args = parser.parse_args()
 
     if not args.csv_path.exists():
@@ -54,10 +66,25 @@ async def main() -> None:
         settings=settings,
     )
 
-    config = AnalysisConfig(
-        include_benchmark=args.include_benchmark,
-        include_pdf=args.include_pdf,
-    )
+    # Same shape the API accepts, so a profile can be exercised headlessly.
+    config_data: dict[str, object] = {}
+    if args.config:
+        try:
+            config_data = json.loads(args.config)
+        except json.JSONDecodeError as exc:
+            print(f"Error: --config is not valid JSON: {exc}")
+            sys.exit(1)
+    config_data.setdefault("include_benchmark", args.include_benchmark)
+    config_data.setdefault("include_pdf", args.include_pdf)
+
+    try:
+        config = AnalysisConfig(**config_data)
+    except ValueError as exc:
+        print(f"Error: invalid config: {exc}")
+        sys.exit(1)
+
+    if config.traffic.is_active:
+        print(f"Traffic profile: {len(config.traffic.bands)} band(s) active")
 
     async def on_progress(state: SessionState, pct: int, detail: str) -> None:
         print(f"  [{pct:3d}%] {state}: {detail}")

@@ -133,6 +133,15 @@ class AnalysisConfig(BaseModel):
     include_benchmark: bool = True
     include_pdf: bool = False
 
+    # OR-Tools' guided local search runs until its time limit rather than
+    # stopping when it converges, so these are spent in full whenever the
+    # matching benchmark runs. The per-route limit is paid once per route, so
+    # total solve time is roughly:
+    #   n_routes * route_benchmark_time_limit_s + fleet_benchmark_time_limit_s
+    # Keep that under Settings.job_timeout_seconds for the fleet sizes you accept.
+    route_benchmark_time_limit_s: int = Field(default=30, gt=0)
+    fleet_benchmark_time_limit_s: int = Field(default=120, gt=0)
+
     @field_validator("traffic", mode="before")
     @classmethod
     def _resolve_named_profile(cls, v: object) -> object:
