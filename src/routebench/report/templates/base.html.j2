@@ -106,10 +106,19 @@
   <div class="section" id="caveats">
     <h2>Caveats</h2>
     <div class="methodology">
+      {% set traffic = metadata.get('traffic_profile', {}) if metadata else {} %}
+      {% if traffic.get('active') %}
+      <p>This analysis is based on planned route data. Travel times are free-flow estimates
+      scaled by the configured traffic profile (see Methodology), which approximates recurring
+      time-of-day congestion but is not live or historical traffic data. Weather and access
+      restrictions are not modeled. Time window compliance is assessed against planned
+      windows.</p>
+      {% else %}
       <p>This analysis is based on planned route data and haversine distance estimates.
       Actual road distances and drive times may vary. Time window compliance is assessed
       against planned windows; real-world conditions (traffic, weather, access restrictions)
       are not modeled.</p>
+      {% endif %}
       <p>Benchmark comparisons use OR-Tools with configurable time limits; solutions may
       not be globally optimal. Sequencing improvements are theoretical and assume no
       additional operational constraints beyond those specified in the input data.</p>

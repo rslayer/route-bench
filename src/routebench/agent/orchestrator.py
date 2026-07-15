@@ -88,6 +88,7 @@ class AnalysisOrchestrator:
             per_route_matrices[route.route_id] = get_route_matrix(
                 route,
                 self._matrix_provider,
+                self._config.work_rules,
             )
 
         # Step 2: Filter tools by applicability
@@ -159,6 +160,7 @@ class AnalysisOrchestrator:
                             matrices=per_route_matrices,
                             matrix_provider=self._matrix_provider,
                             work_rules=self._config.work_rules,
+                            traffic_profile=self._config.traffic,
                         )
                         findings.extend(tool_findings)
                         analyses_run.append(tool_name)
@@ -223,6 +225,9 @@ class AnalysisOrchestrator:
             analyses_skipped=analyses_skipped,
             metadata={
                 "orchestrator_model": self._client._model,
+                # Persisted to analysis.json so the report always discloses the
+                # clock it was graded on, including on admin replay.
+                "traffic_profile": self._traffic_metadata(),
                 **(
                     {
                         "telemetry_summary": self._telemetry.summary(),
@@ -232,3 +237,20 @@ class AnalysisOrchestrator:
                 ),
             },
         )
+
+    def _traffic_metadata(self) -> dict[str, object]:
+        """Describe the traffic profile the analysis was graded under."""
+        profile = self._config.traffic
+        return {
+            "active": profile.is_active,
+            "profile_hash": profile.profile_hash(),
+            "default_factor": profile.default_factor,
+            "bands": [
+                {
+                    "start": band.start.strftime("%H:%M"),
+                    "end": band.end.strftime("%H:%M"),
+                    "speed_factor": band.speed_factor,
+                }
+                for band in sorted(profile.bands, key=lambda b: b.start)
+            ],
+        }

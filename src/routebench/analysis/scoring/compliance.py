@@ -13,19 +13,22 @@ def compute_compliance_metrics(
 ) -> dict[str, object]:
     """Compute compliance metrics for a single route.
 
+    Time-window violations come from the schedule propagated through the matrix
+    in `analysis.scoring.time`, not from the optional `planned_arrival_time` CSV
+    column. The column is a static value produced by whoever built the plan: it
+    does not respond to the travel times we measure, is absent on most uploads
+    (silently yielding zero violations), and would grade the plan on a different
+    clock than the benchmark. Sharing one clock is what lets a traffic profile
+    tighten time-window feasibility.
+
     Returns dict with:
-    - time_window_violations: count of stops where planned arrival > window_end
+    - time_window_violations: count of stops reached after window_end
     - shift_overrun_minutes: from time_metrics
     - lunch_taken_within_window: bool
     - depot_return_after_cutoff: None (not yet implemented)
     """
-    # Count time window violations
-    violations = 0
-    for stop in route.stops:
-        if stop.time_window_end is not None and stop.planned_arrival_time is not None:
-            arrival_time = stop.planned_arrival_time.time()
-            if arrival_time > stop.time_window_end:
-                violations += 1
+    raw_violations = time_metrics.get("time_window_violations", 0)
+    violations = int(raw_violations) if isinstance(raw_violations, (int, float)) else 0
 
     raw_overrun = time_metrics.get("shift_overrun_minutes", 0.0)
     shift_overrun = float(raw_overrun) if isinstance(raw_overrun, (int, float)) else 0.0

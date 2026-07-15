@@ -32,6 +32,12 @@ def solve_tsptw(
 ) -> OptimalSequence:
     """Solve TSP with time windows for a single route using OR-Tools.
 
+    The optimum is computed on whatever durations `matrix` carries. When the
+    caller supplies a traffic-adjusted matrix, the plan and this benchmark are
+    graded on the same clock, so the reported gap stays a like-for-like
+    comparison. Band assignment is fixed per origin before solving, so it does
+    not shift as the solver resequences (see infra.matrix.traffic).
+
     Args:
         route: The route to optimize.
         matrix: Distance/duration matrix (depot at index 0, stops at 1..n).

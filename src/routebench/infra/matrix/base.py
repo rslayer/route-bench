@@ -32,7 +32,15 @@ class MatrixResult(BaseModel):
 
 
 class MatrixProvider(Protocol):
-    """Protocol for origin-destination matrix providers."""
+    """Protocol for origin-destination matrix providers.
+
+    `origin_departure_times` carries one estimated departure time per origin, so
+    a time-aware provider can band each leg by when its origin is actually left.
+    Providers that model no time-of-day variation ignore it. Computing those
+    times needs service times and work rules — domain knowledge that lives in
+    `analysis`, not here — so callers supply the vector rather than the provider
+    deriving it.
+    """
 
     name: str
 
@@ -41,4 +49,5 @@ class MatrixProvider(Protocol):
         origins: list[tuple[float, float]],
         destinations: list[tuple[float, float]],
         departure_time: datetime | None = None,
+        origin_departure_times: list[datetime] | None = None,
     ) -> MatrixResult: ...

@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import structlog
+
+from routebench.analysis.scoring.time import compute_departure_schedule
+from routebench.core.config import TrafficProfile, WorkRules
 from routebench.core.schemas import Route
 from routebench.infra.matrix.base import MatrixProvider, MatrixResult
+
+logger: structlog.stdlib.BoundLogger = structlog.get_logger()
 
 METERS_PER_MILE = 1609.34
 
@@ -56,15 +62,48 @@ def compute_distance_metrics(route: Route, matrix: MatrixResult) -> dict[str, ob
     }
 
 
-def get_route_matrix(route: Route, matrix_provider: MatrixProvider) -> MatrixResult:
+def get_route_matrix(
+    route: Route,
+    matrix_provider: MatrixProvider,
+    work_rules: WorkRules | None = None,
+) -> MatrixResult:
     """Build coordinate list and query the matrix provider for a route.
 
     Returns a square (n+1)x(n+1) matrix where:
     - index 0 = depot
     - indices 1..n = stops in sequence order
+
+    When `matrix_provider` applies an active traffic profile and `work_rules` are
+    given, this takes two passes: the first gets free-flow times, which are used
+    to estimate when each stop is left, and the second re-requests the matrix
+    banded by those departure times. Providers memoize the underlying fetch, so
+    the second pass costs no extra network call.
+
+    Providers without a traffic profile take the single-pass path unchanged.
     """
     coords: list[tuple[float, float]] = [(route.depot_lat, route.depot_lon)]
     for stop in route.stops:
         coords.append((stop.latitude, stop.longitude))
 
-    return matrix_provider.get_matrix(coords, coords)
+    free_flow = matrix_provider.get_matrix(coords, coords)
+
+    # isinstance rather than a truthiness check: getattr on a mock or proxy
+    # auto-creates a truthy attribute, which would drag callers that never asked
+    # for banding down the two-pass path.
+    profile = getattr(matrix_provider, "profile", None)
+    banding = isinstance(profile, TrafficProfile) and profile.is_active
+
+    if banding and work_rules is None:
+        # Silently returning free-flow here would grade the plan on a clock the
+        # report claims is banded, so say it loudly rather than quietly disagree.
+        logger.warning(
+            "traffic_profile_ignored_without_work_rules",
+            route_id=route.route_id,
+            provider=getattr(matrix_provider, "name", "unknown"),
+        )
+
+    if not banding or work_rules is None:
+        return free_flow
+
+    departures = compute_departure_schedule(route, free_flow, work_rules)
+    return matrix_provider.get_matrix(coords, coords, origin_departure_times=departures)

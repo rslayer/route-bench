@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 
 from routebench.core.config import WorkRules
 from routebench.core.schemas import Route
@@ -36,10 +36,16 @@ def compute_time_metrics(
     - shift_overrun_minutes
     - leg_durations_seconds: per-leg travel times
     - time_window_violations: count of stops where arrival > time_window_end
+    - departure_times_seconds: seconds since midnight at which each matrix index
+      is left, indexed to match the matrix (0 = depot, 1..n = stops in sequence)
     """
     n_stops = len(route.stops)
     if n_stops == 0:
         pre_post = (work_rules.pre_trip_minutes + work_rules.post_trip_minutes) / 60.0
+        depot_departure = (
+            _datetime_to_seconds_since_midnight(route.planned_start_time)
+            + work_rules.pre_trip_minutes * 60.0
+        )
         return {
             "drive_time_hours": 0.0,
             "service_time_hours": 0.0,
@@ -48,6 +54,7 @@ def compute_time_metrics(
             "shift_overrun_minutes": max(0.0, pre_post * 60.0 - work_rules.max_shift_hours * 60.0),
             "leg_durations_seconds": [],
             "time_window_violations": 0,
+            "departure_times_seconds": [depot_departure],
         }
 
     durations = matrix.durations_array()
@@ -65,6 +72,10 @@ def compute_time_metrics(
     # Pre-trip time
     pre_trip_seconds = work_rules.pre_trip_minutes * 60.0
     current_time = start_seconds + pre_trip_seconds
+
+    # Departure time per matrix index; index 0 is the depot, left once pre-trip
+    # is done. Stop departures are appended as each stop is processed.
+    departure_times_seconds: list[float] = [current_time]
 
     # Track elapsed shift time for lunch insertion
     elapsed_shift_seconds = pre_trip_seconds
@@ -113,6 +124,9 @@ def compute_time_metrics(
         current_time += svc
         elapsed_shift_seconds += svc
 
+        # Service complete: this is when the vehicle leaves this stop
+        departure_times_seconds.append(current_time)
+
     # Depot to first stop
     travel_depot_to_first = float(durations[0, 1])
     leg_durations.append(travel_depot_to_first)
@@ -152,4 +166,31 @@ def compute_time_metrics(
         "shift_overrun_minutes": shift_overrun_minutes,
         "leg_durations_seconds": leg_durations,
         "time_window_violations": time_window_violations,
+        "departure_times_seconds": departure_times_seconds,
     }
+
+
+def compute_departure_schedule(
+    route: Route,
+    matrix: MatrixResult,
+    work_rules: WorkRules,
+) -> list[datetime]:
+    """Estimate when the vehicle leaves each matrix index, as absolute datetimes.
+
+    Returns one datetime per matrix index (0 = depot, 1..n = stops in sequence),
+    so the result can be handed straight to a time-aware MatrixProvider.
+
+    The schedule is propagated using whatever durations `matrix` carries. Callers
+    applying a traffic profile pass the free-flow matrix here: band assignment is
+    a single-pass approximation off the plan's free-flow schedule and is
+    deliberately not iterated to a fixed point (see the methodology section).
+
+    Times may run past midnight on long routes; the returned datetimes roll into
+    the next day, so wall-clock band lookup stays correct.
+    """
+    metrics = compute_time_metrics(route, matrix, work_rules)
+    raw = metrics["departure_times_seconds"]
+    seconds: list[float] = raw if isinstance(raw, list) else []
+
+    midnight = route.planned_start_time.replace(hour=0, minute=0, second=0, microsecond=0)
+    return [midnight + timedelta(seconds=s) for s in seconds]
