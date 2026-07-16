@@ -31,6 +31,7 @@ from routebench.core.config import (
 )
 from routebench.core.exceptions import BudgetExceededError, RouteBenchError
 from routebench.core.validation import validate_csv
+from routebench.infra.geometry import OSRMGeometryProvider
 from routebench.infra.matrix.base import MatrixProvider
 from routebench.infra.matrix.traffic import TrafficAdjustedProvider
 from routebench.infra.storage.base import StorageBackend
@@ -189,8 +190,12 @@ async def run_session(
         await storage.write(session_id, "analysis.json", analysis_data)
 
         # Map artifact for the web UI. The UI renders geography, it never
-        # computes it, so everything the map needs ships here.
-        geojson_data = json.dumps(build_routes_geojson(analysis), indent=2).encode()
+        # computes it, so everything the map needs ships here. Geometry fetching
+        # is blocking HTTP per route, hence the thread; it degrades to straight
+        # lines rather than failing an analysis that already has real findings.
+        geometry_provider = OSRMGeometryProvider(host=deps.settings.osrm_host)
+        routes_geojson = await asyncio.to_thread(build_routes_geojson, analysis, geometry_provider)
+        geojson_data = json.dumps(routes_geojson, indent=2).encode()
         await storage.write(session_id, "routes.geojson", geojson_data)
 
         telemetry_data = json.dumps(session_telemetry.summary(), indent=2).encode()

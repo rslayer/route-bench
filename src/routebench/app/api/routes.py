@@ -227,6 +227,23 @@ async def download_report_pdf(request: Request, session_id: str) -> RedirectResp
     return RedirectResponse(url=url, status_code=302)
 
 
+@router.get("/sessions/{session_id}/analysis.json", response_model=None)
+async def download_analysis_json(request: Request, session_id: str) -> RedirectResponse | Response:
+    """The structured analysis — findings, metrics, benchmark.
+
+    The UI renders from this rather than re-deriving anything: it is the same
+    artifact the report was built from, so the page and the PDF cannot disagree.
+    """
+    storage = request.app.state.storage
+    if not await storage.exists(session_id, "analysis.json"):
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    if isinstance(storage, LocalStorageBackend):
+        data = await storage.read(session_id, "analysis.json")
+        return Response(content=data, media_type="application/json")
+    url = await storage.presigned_url(session_id, "analysis.json")
+    return RedirectResponse(url=url, status_code=302)
+
+
 @router.get("/sessions/{session_id}/routes.geojson", response_model=None)
 async def download_routes_geojson(request: Request, session_id: str) -> RedirectResponse | Response:
     """The map artifact — route lines, stops, depots, migration arrows.

@@ -136,14 +136,18 @@ class TestGeoJSONValidity:
 class TestGeometryHonesty:
     """Straight lines are not road paths, and the artifact must say so."""
 
-    def test_geometry_is_flagged_approximate(self) -> None:
+    def test_no_provider_falls_back_to_approximate(self) -> None:
         gj = build_routes_geojson(_report())
-        assert gj["properties"]["geometry_approximate"] is True
+        assert gj["properties"]["geometry_quality"] == "approximate"
 
-    def test_geometry_note_explains_why(self) -> None:
+    def test_approximate_note_explains_why(self) -> None:
         note = build_routes_geojson(_report())["properties"]["geometry_note"]
         assert "straight segments" in note
-        assert "not" in note
+
+    def test_line_features_carry_their_own_quality(self) -> None:
+        """A fleet can be mixed, so quality is per-line as well as collection-level."""
+        gj = build_routes_geojson(_report())
+        assert _kinds(gj, "actual")[0]["properties"]["geometry_quality"] == "approximate"
 
 
 class TestPlannedRoute:
@@ -151,14 +155,14 @@ class TestPlannedRoute:
 
     def test_line_runs_depot_to_stops_to_depot(self) -> None:
         gj = build_routes_geojson(_report(routes=[_route(n=3)]))
-        line = _kinds(gj, "route_planned")[0]
+        line = _kinds(gj, "actual")[0]
         coords = line["geometry"]["coordinates"]
         assert len(coords) == 5  # depot + 3 stops + depot
         assert coords[0] == coords[-1], "route must return to the depot"
 
     def test_carries_route_metrics(self) -> None:
         gj = build_routes_geojson(_report())
-        props = _kinds(gj, "route_planned")[0]["properties"]
+        props = _kinds(gj, "actual")[0]["properties"]
         assert props["route_id"] == "R1"
         assert props["stop_count"] == 3
         assert props["total_distance_miles"] == 12.5
@@ -166,7 +170,7 @@ class TestPlannedRoute:
 
     def test_one_line_per_route(self) -> None:
         gj = build_routes_geojson(_report(routes=[_route("R1"), _route("R2")]))
-        assert len(_kinds(gj, "route_planned")) == 2
+        assert len(_kinds(gj, "actual")) == 2
 
 
 class TestStopsAndDepots:
@@ -223,7 +227,7 @@ class TestFindingLinks:
     def test_route_carries_its_finding_ids(self) -> None:
         finding = self._finding(["R1"])
         gj = build_routes_geojson(_report(findings=[finding]))
-        assert _kinds(gj, "route_planned")[0]["properties"]["finding_ids"] == [finding.finding_id]
+        assert _kinds(gj, "actual")[0]["properties"]["finding_ids"] == [finding.finding_id]
 
     def test_stop_carries_its_finding_ids(self) -> None:
         finding = self._finding(["R1"], [("R1", 2)])
@@ -234,7 +238,7 @@ class TestFindingLinks:
 
     def test_unreferenced_route_has_no_findings(self) -> None:
         gj = build_routes_geojson(_report())
-        assert _kinds(gj, "route_planned")[0]["properties"]["finding_ids"] == []
+        assert _kinds(gj, "actual")[0]["properties"]["finding_ids"] == []
 
 
 def _benchmark(stop_order: list[int], gap: float = 12.0) -> BenchmarkResult:
@@ -262,25 +266,25 @@ class TestOptimalRoute:
     def test_optimal_line_follows_solver_order(self) -> None:
         """stop_order [3,1,2] must draw depot->s3->s1->s2->depot."""
         gj = build_routes_geojson(_report(benchmark=_benchmark([3, 1, 2])))
-        line = _kinds(gj, "route_optimal")[0]
+        line = _kinds(gj, "optimal")[0]
         coords = line["geometry"]["coordinates"]
         # stop i sits at lat 32.80 + 0.01*i
         lats = [c[1] for c in coords[1:-1]]
         assert lats == pytest.approx([32.83, 32.81, 32.82])
 
     def test_no_optimal_line_without_a_benchmark(self) -> None:
-        assert _kinds(build_routes_geojson(_report()), "route_optimal") == []
+        assert _kinds(build_routes_geojson(_report()), "optimal") == []
 
     def test_no_optimal_line_without_a_stop_order(self) -> None:
         """A benchmark with no reorderable sequence draws nothing."""
         gj = build_routes_geojson(_report(benchmark=_benchmark([])))
-        assert _kinds(gj, "route_optimal") == []
+        assert _kinds(gj, "optimal") == []
 
     def test_negative_gap_survives_to_the_map(self) -> None:
         """A plan the solver cannot beat must not be clamped (Phase 10.5 Part B)."""
         gj = build_routes_geojson(_report(benchmark=_benchmark([1, 2, 3], gap=-4.0)))
-        assert _kinds(gj, "route_optimal")[0]["properties"]["distance_gap_pct"] == -4.0
-        assert _kinds(gj, "route_planned")[0]["properties"]["distance_gap_pct"] == -4.0
+        assert _kinds(gj, "optimal")[0]["properties"]["distance_gap_pct"] == -4.0
+        assert _kinds(gj, "actual")[0]["properties"]["distance_gap_pct"] == -4.0
 
     def test_collection_flags_benchmark_presence(self) -> None:
         assert build_routes_geojson(_report())["properties"]["has_benchmark"] is False

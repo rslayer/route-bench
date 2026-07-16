@@ -1,31 +1,29 @@
 """Emit routes.geojson — the map artifact the web UI renders.
 
 The UI renders geography; it never computes it. Everything the map needs is in
-this file: route lines (planned and solver-optimal), stops, depots, and
-migration arrows, each carrying the identifiers needed to link a finding to a
-feature.
+this file: route lines (actual and solver-optimal), stops, depots, and migration
+links, each carrying the identifiers needed to link a finding to a feature.
 
-GEOMETRY IS APPROXIMATE. The matrix provider fetches OSRM `/table` (travel-time
-and distance matrices), not `/route` (road polylines), so no road geometry
-exists anywhere in the pipeline. Lines here are straight segments between
-consecutive stops — correct in topology and order, but not the path a vehicle
-drives. `geometry_approximate: true` on the collection says so, and the UI is
-expected to surface it. Upgrading to real road paths means adding an OSRM
-/route call per leg, which is a separate piece of work.
+Geometry comes from OSRM /route where available and degrades to straight
+segments where not. The collection reports which it got via `geometry_quality`,
+and individual line features carry their own — a fleet can be mixed, because a
+single unroutable route falls back on its own without dragging the rest down.
 
-Distances and times shown alongside the map come from the matrices and ARE road
-distances; only the drawn line is approximate. Those two facts sitting next to
-each other is exactly why the flag needs to be explicit.
+The distances and times in these properties always come from the matrix and are
+real road figures regardless of geometry quality. Under "approximate" geometry
+those numbers visibly disagree with the drawn line, which is exactly why the
+flag has to reach the UI.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Protocol
 
 import structlog
 
 from routebench.core.findings import AnalysisReport
 from routebench.core.schemas import Route
+from routebench.infra.geometry import RouteGeometry, straight_line
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger()
 
@@ -35,32 +33,39 @@ logger: structlog.stdlib.BoundLogger = structlog.get_logger()
 Position = list[float]
 
 
+class GeometryProvider(Protocol):
+    """Structural type for a geometry source (see infra.geometry)."""
+
+    def fetch(self, coords: list[tuple[float, float]]) -> RouteGeometry: ...
+
+
 def _pos(lat: float, lon: float) -> Position:
     return [lon, lat]
 
 
-def _route_positions(route: Route) -> list[Position]:
-    """Depot -> stops in planned order -> depot."""
-    coords = [_pos(route.depot_lat, route.depot_lon)]
-    coords.extend(_pos(s.latitude, s.longitude) for s in route.stops)
-    coords.append(_pos(route.depot_lat, route.depot_lon))
-    return coords
+def _actual_waypoints(route: Route) -> list[tuple[float, float]]:
+    """Depot -> stops in planned order -> depot, as (lat, lon)."""
+    return [
+        (route.depot_lat, route.depot_lon),
+        *[(s.latitude, s.longitude) for s in route.stops],
+        (route.depot_lat, route.depot_lon),
+    ]
 
 
-def _optimal_positions(route: Route, stop_order: list[int]) -> list[Position]:
+def _optimal_waypoints(route: Route, stop_order: list[int]) -> list[tuple[float, float]]:
     """Depot -> stops in solver order -> depot.
 
     `stop_order` holds matrix indices (1..n; 0 is the depot), which is how the
     solver reports its tour.
     """
-    coords = [_pos(route.depot_lat, route.depot_lon)]
+    waypoints = [(route.depot_lat, route.depot_lon)]
     for idx in stop_order:
         stop_idx = idx - 1
         if 0 <= stop_idx < len(route.stops):
             stop = route.stops[stop_idx]
-            coords.append(_pos(stop.latitude, stop.longitude))
-    coords.append(_pos(route.depot_lat, route.depot_lon))
-    return coords
+            waypoints.append((stop.latitude, stop.longitude))
+    waypoints.append((route.depot_lat, route.depot_lon))
+    return waypoints
 
 
 def _feature(geometry: dict[str, Any], properties: dict[str, Any]) -> dict[str, Any]:
@@ -93,6 +98,16 @@ def _findings_by_stop(report: AnalysisReport) -> dict[tuple[str, int], list[str]
     return index
 
 
+def _compliance_routes(report: AnalysisReport) -> set[str]:
+    """Routes carrying a compliance finding, for the stop violation badge."""
+    return {
+        route_id
+        for finding in report.findings
+        if finding.category == "compliance"
+        for route_id in finding.references.route_ids
+    }
+
+
 def _bbox(features: list[dict[str, Any]]) -> list[float] | None:
     """[west, south, east, north] over every coordinate, for initial map fit."""
     lons: list[float] = []
@@ -109,36 +124,50 @@ def _bbox(features: list[dict[str, Any]]) -> list[float] | None:
     return [min(lons), min(lats), max(lons), max(lats)]
 
 
-def build_routes_geojson(report: AnalysisReport) -> dict[str, Any]:
+def build_routes_geojson(
+    report: AnalysisReport,
+    geometry_provider: GeometryProvider | None = None,
+) -> dict[str, Any]:
     """Build the map artifact for an analysis.
 
     Returns a FeatureCollection. Every feature carries a `kind` discriminator:
 
-      "route_planned"  LineString  the plan as uploaded
-      "route_optimal"  LineString  the solver's tour (only where benchmarked)
-      "stop"           Point       one per stop
-      "depot"          Point       one per route's depot (deduplicated)
-      "migration"      LineString  from a stop to the route that should serve it
+      "actual"     LineString  the plan as uploaded
+      "optimal"    LineString  the solver's tour (only where benchmarked)
+      "stop"       Point       one per stop
+      "depot"      Point       one per distinct depot coordinate
+      "migration"  LineString  from a stop to the route that should serve it
 
-    Collection-level `properties` carry `geometry_approximate` and the counts a
-    UI needs before it renders anything.
+    With no `geometry_provider`, every line is straight segments — the shape a
+    caller gets when OSRM is not available at all (tests, offline runs).
     """
     features: list[dict[str, Any]] = []
     route_findings = _findings_by_route(report)
     stop_findings = _findings_by_stop(report)
+    compliance_routes = _compliance_routes(report)
     benchmark = report.benchmark
+
+    def _geometry(coords: list[tuple[float, float]]) -> RouteGeometry:
+        if geometry_provider is None:
+            return straight_line(coords)
+        return geometry_provider.fetch(coords)
+
+    qualities: list[str] = []
 
     for route in report.fleet.routes:
         rid = route.route_id
         metrics = report.route_metrics.get(rid)
         route_benchmark = benchmark.per_route.get(rid) if benchmark else None
 
+        actual = _geometry(_actual_waypoints(route))
+        qualities.append(actual.quality)
         features.append(
             _line(
-                _route_positions(route),
+                actual.positions,
                 {
-                    "kind": "route_planned",
+                    "kind": "actual",
                     "route_id": rid,
+                    "geometry_quality": actual.quality,
                     "stop_count": len(route.stops),
                     "finding_ids": route_findings.get(rid, []),
                     "total_distance_miles": (
@@ -161,12 +190,17 @@ def build_routes_geojson(report: AnalysisReport) -> dict[str, Any]:
         )
 
         if route_benchmark is not None and route_benchmark.stop_order:
+            optimal = _geometry(_optimal_waypoints(route, route_benchmark.stop_order))
+            qualities.append(optimal.quality)
             features.append(
                 _line(
-                    _optimal_positions(route, route_benchmark.stop_order),
+                    optimal.positions,
                     {
-                        "kind": "route_optimal",
+                        "kind": "optimal",
                         "route_id": rid,
+                        "geometry_quality": optimal.quality,
+                        "stop_order": route_benchmark.stop_order,
+                        "finding_ids": route_findings.get(rid, []),
                         "total_distance_miles": round(route_benchmark.optimal_distance_miles, 3),
                         "total_time_hours": round(route_benchmark.optimal_time_hours, 3),
                         "distance_gap_pct": round(route_benchmark.distance_gap_pct, 2),
@@ -175,7 +209,9 @@ def build_routes_geojson(report: AnalysisReport) -> dict[str, Any]:
                 )
             )
 
+        route_has_violation = rid in compliance_routes
         for stop in route.stops:
+            stop_finding_ids = stop_findings.get((rid, stop.stop_sequence), [])
             features.append(
                 _point(
                     _pos(stop.latitude, stop.longitude),
@@ -187,6 +223,11 @@ def build_routes_geojson(report: AnalysisReport) -> dict[str, Any]:
                         "address": stop.address,
                         "stop_type": stop.stop_type,
                         "service_time_minutes": stop.service_time_minutes,
+                        "planned_arrival_time": (
+                            stop.planned_arrival_time.isoformat()
+                            if stop.planned_arrival_time
+                            else None
+                        ),
                         "time_window_start": (
                             stop.time_window_start.strftime("%H:%M")
                             if stop.time_window_start
@@ -195,7 +236,12 @@ def build_routes_geojson(report: AnalysisReport) -> dict[str, Any]:
                         "time_window_end": (
                             stop.time_window_end.strftime("%H:%M") if stop.time_window_end else None
                         ),
-                        "finding_ids": stop_findings.get((rid, stop.stop_sequence), []),
+                        "demand_units": stop.demand_units,
+                        # Route-level: compliance findings name the route, not
+                        # the individual late stop, so this badges every stop on
+                        # a route with a violation rather than pinpointing one.
+                        "has_violation": route_has_violation,
+                        "finding_ids": stop_finding_ids,
                     },
                 )
             )
@@ -215,22 +261,22 @@ def build_routes_geojson(report: AnalysisReport) -> dict[str, Any]:
 
     if benchmark is not None and benchmark.fleet_level is not None:
         stop_index = {
-            (r.route_id, s.stop_sequence): (s, r) for r in report.fleet.routes for s in r.stops
+            (r.route_id, s.stop_sequence): s for r in report.fleet.routes for s in r.stops
         }
         route_depots = {r.route_id: (r.depot_lat, r.depot_lon) for r in report.fleet.routes}
 
         for migration in benchmark.fleet_level.stop_migrations:
-            entry = stop_index.get((migration.route_id, migration.stop_sequence))
+            migrated_stop = stop_index.get((migration.route_id, migration.stop_sequence))
             target_depot = route_depots.get(migration.to_route)
-            if entry is None or target_depot is None:
+            if migrated_stop is None or target_depot is None:
                 continue
-            stop, _route = entry
-            # An arrow from the stop toward the depot of the route the solver
+            # A link from the stop toward the depot of the route the solver
             # would rather serve it from: enough to show the pull, without
-            # implying a drivable path.
+            # implying a drivable path. Deliberately straight — this is a
+            # relationship, not a route.
             features.append(
                 _line(
-                    [_pos(stop.latitude, stop.longitude), _pos(*target_depot)],
+                    [_pos(migrated_stop.latitude, migrated_stop.longitude), _pos(*target_depot)],
                     {
                         "kind": "migration",
                         "route_id": migration.route_id,
@@ -238,23 +284,31 @@ def build_routes_geojson(report: AnalysisReport) -> dict[str, Any]:
                         "customer_id": migration.customer_id,
                         "from_route": migration.from_route,
                         "to_route": migration.to_route,
+                        "finding_ids": route_findings.get(migration.route_id, []),
                     },
                 )
             )
+
+    # One bad route degrades only itself, so report the fleet honestly: exact
+    # only when every line is exact.
+    collection_quality = (
+        "exact" if qualities and all(q == "exact" for q in qualities) else "approximate"
+    )
 
     collection: dict[str, Any] = {
         "type": "FeatureCollection",
         "features": features,
         "properties": {
             "schema_version": 1,
-            # Straight segments between stops, not driven road paths. The UI is
-            # expected to surface this; distances/times alongside ARE real road
-            # figures from the matrix, which is why the distinction matters.
-            "geometry_approximate": True,
+            "geometry_quality": collection_quality,
             "geometry_note": (
-                "Route lines are straight segments between consecutive stops, not "
-                "driven road paths. Distances and times are road-network values "
-                "from OSRM."
+                "Route lines follow OSRM road geometry."
+                if collection_quality == "exact"
+                else (
+                    "Some or all route lines are straight segments between stops rather "
+                    "than driven road paths. Distances and times are road-network values "
+                    "from OSRM regardless."
+                )
             ),
             "has_benchmark": benchmark is not None,
             "has_fleet_benchmark": benchmark is not None and benchmark.fleet_level is not None,
@@ -271,6 +325,7 @@ def build_routes_geojson(report: AnalysisReport) -> dict[str, Any]:
         "routes_geojson_built",
         features=len(features),
         routes=len(report.fleet.routes),
+        geometry_quality=collection_quality,
         has_benchmark=benchmark is not None,
     )
     return collection

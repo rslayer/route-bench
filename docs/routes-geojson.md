@@ -6,21 +6,19 @@ The artifact the web UI renders. Written per session to
 The UI renders geography; it never computes it. Everything the map needs is
 here.
 
-## ⚠️ Geometry is approximate — and the UI must say so
+## ⚠️ Geometry quality — the UI must surface it
 
-**Route lines are straight segments between consecutive stops, not driven road
-paths.** The matrix provider fetches OSRM `/table` (travel-time and distance
-matrices), never `/route` (road polylines), so no road geometry exists anywhere
-in the pipeline.
+Route lines come from OSRM `/route` (real road paths) where available, and
+degrade to **straight segments between stops** where not — OSRM unreachable,
+slow, or refusing the request. `properties.geometry_quality` is `"exact"` or
+`"approximate"`, and **each line feature carries its own**: one unroutable route
+falls back alone rather than dragging the fleet down, so a fleet can be mixed.
+The collection reports `"exact"` only when every line is exact.
 
-The trap: **the distances and times shown next to the map are real road figures**
-from the matrix. So a user sees "12.5 miles" beside a straight line that plainly
-is not 12.5 miles of road. Those two facts sitting together is why
-`properties.geometry_approximate` is `true` and why the UI is expected to
-surface it rather than let the line imply a path.
-
-Upgrading to real road paths means adding an OSRM `/route` call per leg — a
-separate piece of work, deliberately not smuggled in here.
+The trap under `"approximate"`: **the distances and times beside the map are
+always real road figures** from the matrix, whatever the line looks like. So a
+user can see "12.5 miles" next to a straight line that plainly is not 12.5 miles
+of road. That is why the flag has to reach the UI rather than sit in the file.
 
 ## Shape
 
@@ -30,8 +28,8 @@ separate piece of work, deliberately not smuggled in here.
   "bbox": [west, south, east, north],   // absent for an empty fleet
   "properties": {
     "schema_version": 1,
-    "geometry_approximate": true,
-    "geometry_note": "Route lines are straight segments…",
+    "geometry_quality": "exact",        // or "approximate"; see above
+    "geometry_note": "Route lines follow OSRM road geometry.",
     "has_benchmark": true,              // per-route benchmark ran
     "has_fleet_benchmark": false,       // fleet VRPTW ran (skipped for 1-route,
                                         //   multi-depot, or >300-stop fleets)
@@ -51,20 +49,21 @@ Every feature carries a `kind` discriminator. Filter on it.
 
 | `kind` | Geometry | One per |
 |---|---|---|
-| `route_planned` | LineString | route |
-| `route_optimal` | LineString | benchmarked route |
+| `actual` | LineString | route |
+| `optimal` | LineString | benchmarked route |
 | `stop` | Point | stop |
 | `depot` | Point | distinct depot coordinate |
 | `migration` | LineString | migrated stop |
 
-### `route_planned`
+### `actual`
 
 The plan as uploaded: depot → stops in planned order → depot (closed).
 
 ```jsonc
 {
-  "kind": "route_planned",
+  "kind": "actual",
   "route_id": "R001",
+  "geometry_quality": "exact",      // per-line; the fleet may be mixed
   "stop_count": 8,
   "finding_ids": ["a1b2c3d4"],      // findings referencing this route
   "total_distance_miles": 12.5,     // REAL road distance
@@ -74,7 +73,7 @@ The plan as uploaded: depot → stops in planned order → depot (closed).
 }
 ```
 
-### `route_optimal`
+### `optimal`
 
 The solver's tour: depot → stops in solver order → depot. **Only present when
 the route was benchmarked and the solver returned a reorderable sequence** — a
@@ -83,8 +82,10 @@ unavailable, not broken.
 
 ```jsonc
 {
-  "kind": "route_optimal",
+  "kind": "optimal",
   "route_id": "R001",
+  "geometry_quality": "exact",
+  "stop_order": [3, 1, 2],          // matrix indices in solver visit order
   "total_distance_miles": 11.0,
   "total_time_hours": 1.9,
   "distance_gap_pct": 12.3,
@@ -105,6 +106,9 @@ unavailable, not broken.
   "service_time_minutes": 5.0,
   "time_window_start": "09:00",   // nullable, HH:MM local
   "time_window_end": "17:30",     // nullable
+  "planned_arrival_time": "…",    // nullable, ISO 8601
+  "demand_units": 12.0,           // nullable
+  "has_violation": false,         // route carries a compliance finding
   "finding_ids": []               // findings referencing this specific stop
 }
 ```
@@ -146,12 +150,12 @@ zero. See Phase 10.5 Part B.
 
 **Findings link both ways.** `finding_ids` on routes and stops is the join key
 for findings↔map highlighting. A finding referencing a route puts its id on that
-`route_planned` feature; a finding referencing a specific stop puts it on that
-`stop` feature. Both can be empty.
+`actual` feature; a finding referencing a specific stop puts it on that `stop`
+feature. Both can be empty.
 
 ## Absences to design for
 
-- No `route_optimal` → benchmark off, or nothing to reorder.
+- No `optimal` → benchmark off, or nothing to reorder.
 - `has_fleet_benchmark: false` → no `migration` features; the fleet solver is
   skipped for single-route fleets, fleets whose routes do not share one depot,
   and fleets above the 300-stop cap. `analysis.json`'s `analyses_skipped`
