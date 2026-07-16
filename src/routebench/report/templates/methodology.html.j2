@@ -66,8 +66,19 @@
     {% endif %}
 
     <p><strong>Benchmark optimization:</strong> Uses Google OR-Tools TSPTW solver for single-route
-    optimization and VRPTW solver for fleet-level optimization. Solutions are time-limited
-    and may not be globally optimal.</p>
+    optimization and VRPTW solver for fleet-level optimization.</p>
+
+    <p><strong>What the benchmark does and does not prove:</strong> Both solvers run a
+    time-limited metaheuristic (guided local search). What they return is the
+    <strong>best solution found within the time limit</strong> — <em>not</em> a proven optimum,
+    and not a proven bound on the distance to one. A reported gap therefore measures how much
+    the solver improved on the plan, not how wasteful the plan provably is.</p>
+
+    <p>The practical consequence is that <strong>reported gaps are conservative</strong>: the
+    true recoverable waste is <em>at least</em> the figure shown, and may be more, because a
+    better solution may exist that the solver did not find. A gap of zero or below means only
+    that the solver found nothing better than the plan within its budget — the plan is within
+    solver reach. It does not prove the plan is optimal.</p>
 
     <p><strong>Territory analysis:</strong> Detects geographic overlap between routes using convex
     hull intersection and point-in-polygon tests. Depot stress measured via haversine distance.</p>

@@ -86,6 +86,16 @@ class SessionRegistry:
         self._active[session_id] = status
         return status
 
+    def restore(self, status: SessionStatus) -> SessionStatus:
+        """Re-adopt a session found in storage as active.
+
+        Used by startup recovery: a session left in flight by a restart exists in
+        storage but not in this process's memory, and `update` only touches
+        active sessions.
+        """
+        self._active[status.session_id] = status
+        return status
+
     def update(
         self,
         session_id: str,

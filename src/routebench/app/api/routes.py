@@ -61,7 +61,7 @@ async def create_session(
 
     # Check daily budget (Phase 9)
     budget_tracker = getattr(request.app.state, "budget_tracker", None)
-    if budget_tracker is not None and budget_tracker.is_exceeded():
+    if budget_tracker is not None and await budget_tracker.is_exceeded():
         raise HTTPException(
             status_code=503,
             detail="Daily budget exceeded. Service resumes at UTC midnight.",
@@ -109,6 +109,18 @@ async def create_session(
     # Write upload to storage
     storage = request.app.state.storage
     await storage.write(session_id, "upload.csv", upload_data)
+
+    # Persist the config and the queued status before enqueuing. Without both,
+    # a restart cannot recover this session: nothing on disk would say it exists
+    # (status.json is written by the worker, which may never run), and the
+    # caller's config lives only in the in-memory JobRequest — recovering
+    # without it would silently run a different analysis than was requested.
+    await storage.write(
+        session_id,
+        "config.json",
+        analysis_config.model_dump_json(indent=2).encode(),
+    )
+    await registry.persist(session_id)
 
     # Enqueue job — clean up on failure
     job = JobRequest(

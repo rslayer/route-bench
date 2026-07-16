@@ -67,7 +67,7 @@ class RouteBenchmarkTool:
                         confidence=0.90,
                         title=(
                             f"Route {route.route_id}: {benchmark.distance_gap_pct:.1f}% "
-                            f"distance gap vs optimal"
+                            f"distance gap vs solver solution"
                         ),
                         evidence=[
                             FindingEvidence(
@@ -82,10 +82,46 @@ class RouteBenchmarkTool:
                             route_ids=[route.route_id],
                         ),
                         hypothesis=(
-                            f"Route could save {benchmark.distance_gap_pct:.1f}% distance "
-                            f"with optimal sequencing"
+                            f"Route could save at least {benchmark.distance_gap_pct:.1f}% "
+                            f"distance with better sequencing"
                         ),
                         suggested_investigation="Run resequencing with OR-Tools solution",
+                    )
+                )
+            elif benchmark.distance_gap_pct <= 0.0:
+                # The solver, given a time limit, found nothing better than the
+                # plan. Reporting this is the point of a benchmark: a plan that
+                # survives the check has earned a clean bill, not silence.
+                findings.append(
+                    Finding(
+                        category="sequencing",
+                        severity="info",
+                        confidence=0.90,
+                        title=(
+                            f"Route {route.route_id}: plan is within solver reach — "
+                            f"no material sequencing savings found"
+                        ),
+                        evidence=[
+                            FindingEvidence(
+                                metric_name="distance_gap_pct",
+                                actual_value=benchmark.distance_gap_pct,
+                                comparison_value=0.0,
+                                comparison_type="optimal",
+                                unit="percent",
+                            ),
+                        ],
+                        references=FindingReference(
+                            route_ids=[route.route_id],
+                        ),
+                        hypothesis=(
+                            f"Route {route.route_id} is sequenced at least as well as the "
+                            f"solver managed within its time limit; no resequencing "
+                            f"opportunity was identified"
+                        ),
+                        suggested_investigation=(
+                            "No action indicated for sequencing; look to other categories "
+                            "for this route"
+                        ),
                     )
                 )
 
@@ -154,20 +190,19 @@ class FleetBenchmarkTool:
         if sink is not None:
             sink["fleet_level"] = benchmark
 
-        if benchmark.optimality_gap_reported_by_solver > 0.05:
+        if benchmark.improvement_gap_pct > 5.0:
             findings.append(
                 Finding(
                     category="dispatch",
                     severity="medium",
                     confidence=0.85,
                     title=(
-                        f"Fleet-level optimization gap: "
-                        f"{benchmark.optimality_gap_reported_by_solver:.1%}"
+                        f"Fleet-level improvement available: {benchmark.improvement_gap_pct:.1f}%"
                     ),
                     evidence=[
                         FindingEvidence(
-                            metric_name="fleet_optimality_gap",
-                            actual_value=benchmark.optimality_gap_reported_by_solver * 100,
+                            metric_name="fleet_improvement_gap_pct",
+                            actual_value=benchmark.improvement_gap_pct,
                             comparison_value=5.0,
                             comparison_type="optimal",
                             unit="percent",
@@ -178,6 +213,34 @@ class FleetBenchmarkTool:
                     ),
                     hypothesis="Fleet routing can be improved with cross-route optimization",
                     suggested_investigation="Review stop-to-route assignments",
+                )
+            )
+        elif benchmark.improvement_gap_pct <= 0.0 and not benchmark.stop_migrations:
+            findings.append(
+                Finding(
+                    category="dispatch",
+                    severity="info",
+                    confidence=0.85,
+                    title=(
+                        "Fleet plan is within solver reach — no material cross-route savings found"
+                    ),
+                    evidence=[
+                        FindingEvidence(
+                            metric_name="fleet_improvement_gap_pct",
+                            actual_value=benchmark.improvement_gap_pct,
+                            comparison_value=0.0,
+                            comparison_type="optimal",
+                            unit="percent",
+                        ),
+                    ],
+                    references=FindingReference(
+                        route_ids=[r.route_id for r in fleet.routes],
+                    ),
+                    hypothesis=(
+                        "Stop-to-route assignments are at least as good as the solver "
+                        "managed within its time limit"
+                    ),
+                    suggested_investigation=("No action indicated for cross-route assignment"),
                 )
             )
 

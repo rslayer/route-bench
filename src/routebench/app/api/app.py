@@ -95,7 +95,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     registry = SessionRegistry(storage=storage)
     telemetry_sink = TelemetrySink(storage=storage)
-    budget_tracker = BudgetTracker(daily_budget_usd=settings.daily_budget_usd)
+    budget_tracker = BudgetTracker(
+        storage=storage,
+        daily_budget_usd=settings.daily_budget_usd,
+    )
     worker = SessionWorker(
         deps=deps,
         registry=registry,
@@ -108,6 +111,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         storage=storage,
         session_ttl_hours=settings.session_ttl_hours,
         telemetry_ttl_hours=settings.telemetry_ttl_hours,
+        job_timeout_seconds=settings.job_timeout_seconds,
     )
 
     @asynccontextmanager

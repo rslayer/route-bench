@@ -10,6 +10,11 @@ class StorageBackend(Protocol):
     """Async storage abstraction for session artifacts.
 
     Layout: sessions/{session_id}/{filename}
+
+    Alongside per-session files, backends store a small number of objects that
+    belong to the deployment rather than any one session (the budget ledger).
+    Those use `read_object`/`append_object` with an explicit key, keeping them
+    out of the session namespace so `list_sessions` never sees them.
     """
 
     async def write(self, session_id: str, filename: str, data: bytes) -> None:
@@ -38,4 +43,17 @@ class StorageBackend(Protocol):
 
     async def is_writable(self) -> bool:
         """Check that storage is writable (for health checks)."""
+        ...
+
+    async def read_object(self, key: str) -> bytes:
+        """Read a non-session object by key. Raises FileNotFoundError if missing."""
+        ...
+
+    async def append_object(self, key: str, data: bytes) -> None:
+        """Append bytes to a non-session object, creating it if absent.
+
+        Object stores have no native append, so a backend may implement this as
+        read-modify-write. Callers must serialize concurrent appends to the same
+        key; single-machine deployments do this with a lock.
+        """
         ...
