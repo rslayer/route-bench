@@ -559,3 +559,74 @@ a {
   padding: 0.15rem 0.4rem;
   font-size: 0.85rem;
 }
+
+/* Upload flow ---------------------------------------------------------- */
+
+.upload-page h2 { margin-top: 2.5rem; }
+
+.mapper-ok { color: var(--muted); }
+.mapper-missing { color: #b3261e; }
+.mapper-missing code, .mapper-ok code { font-size: 0.85em; }
+.mapper-table select { font: inherit; padding: 0.25rem; max-width: 16rem; }
+.mapper-table tr.is-unmapped th[scope="row"] code { opacity: 0.55; }
+.mapper-desc { color: var(--muted); font-size: 0.85rem; }
+
+.preview-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+.preview-table { margin: 0; font-size: 0.8rem; white-space: nowrap; }
+.preview-table th, .preview-table td { padding: 0.4rem 0.6rem; }
+.preview-target { display: block; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--fg); }
+.preview-source { display: block; font-size: 0.7rem; color: var(--muted); font-weight: 400; }
+.cell-empty { color: var(--muted); }
+.cell-note { display: block; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.03em; }
+.cell-error { background: color-mix(in srgb, #b3261e 12%, transparent); }
+.cell-error .cell-note { color: #b3261e; }
+.cell-warn { background: color-mix(in srgb, #DDCC77 22%, transparent); }
+.cell-warn .cell-note { color: #7a6a00; }
+.preview-issues { font-size: 0.85rem; color: var(--muted); margin: 0 0 0.5rem; }
+
+/* Constraints panel ---------------------------------------------------- */
+
+.settings { border: 1px solid var(--border); border-radius: var(--radius); margin: 2rem 0; }
+.settings > summary {
+  cursor: pointer; padding: 0.9rem 1.25rem; font-weight: 600;
+  display: flex; justify-content: space-between; gap: 1rem; align-items: baseline;
+}
+.settings-hint { color: var(--muted); font-weight: 400; font-size: 0.85rem; }
+.settings-body { padding: 0 1.25rem 1.25rem; border-top: 1px solid var(--border); }
+.settings-lede { color: var(--muted); font-size: 0.9rem; margin: 1rem 0 1.5rem; max-width: 60ch; }
+
+.constraint { padding: 0.85rem 0; border-bottom: 1px solid var(--border); }
+.constraint:last-of-type { border-bottom: none; }
+.constraint-head { display: flex; align-items: center; gap: 0.5rem; }
+.constraint-head label, .constraint-static { font-weight: 500; }
+.constraint-desc { color: var(--muted); font-size: 0.85rem; margin: 0.25rem 0 0 0; max-width: 62ch; }
+.constraint-fields { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 0.6rem; }
+.constraint-fields select { font: inherit; padding: 0.25rem; }
+
+.numfield { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; }
+.numfield label { color: var(--muted); }
+.numfield input { font: inherit; width: 5rem; padding: 0.2rem 0.4rem; }
+.numfield-unit { color: var(--muted); }
+
+.deviations {
+  margin-top: 1.25rem; padding: 0.9rem 1rem; font-size: 0.85rem;
+  border-left: 3px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+.deviations ul { margin: 0.4rem 0 0; padding-left: 1.1rem; color: var(--muted); }
+
+.unsupported { margin-top: 1.5rem; font-size: 0.85rem; }
+.unsupported > summary { cursor: pointer; color: var(--muted); }
+.unsupported ul { list-style: none; padding: 0; margin: 0.75rem 0 0; display: grid; gap: 0.75rem; }
+
+/* Submit --------------------------------------------------------------- */
+
+.submit-row { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; margin: 2rem 0; }
+.btn-primary {
+  font: inherit; font-weight: 600; padding: 0.7rem 1.4rem; border: none;
+  border-radius: var(--radius); background: var(--accent); color: var(--accent-fg); cursor: pointer;
+}
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.submit-blocked { color: var(--muted); font-size: 0.85rem; }
+.submit-cancel { color: var(--muted); font-size: 0.85rem; }
