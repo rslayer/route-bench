@@ -1,0 +1,561 @@
+/* Design tokens. One decision per screen means the type scale and spacing carry
+   the hierarchy — there is no component library here to lean on. */
+:root {
+  --bg: #ffffff;
+  --fg: #16161a;
+  --muted: #5c5f6b;
+  --border: #e3e4e8;
+  --accent: #332288;
+  --accent-fg: #ffffff;
+  --radius: 8px;
+  --maxw: 68rem;
+  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101014;
+    --fg: #f2f2f4;
+    --muted: #a1a4ae;
+    --border: #2a2b33;
+    --accent: #a99ce0;
+    --accent-fg: #101014;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+.page {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+}
+
+main {
+  flex: 1;
+}
+
+.container {
+  margin: 0 auto;
+  max-width: var(--maxw);
+  padding: 3rem 1.5rem;
+}
+
+h1 {
+  font-size: clamp(2rem, 5vw, 3rem);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.75rem;
+}
+
+.lede {
+  color: var(--muted);
+  font-size: 1.15rem;
+  margin: 0 0 2rem;
+  max-width: 46ch;
+}
+
+.scaffold-note {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+a {
+  color: inherit;
+}
+
+/* Visible only when focused — the first tab stop on every page. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--accent);
+  color: var(--accent-fg);
+  padding: 0.5rem 1rem;
+  z-index: 100;
+}
+.skip-link:focus {
+  left: 0;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Footer ------------------------------------------------------------------ */
+
+.footer {
+  border-top: 1px solid var(--border);
+  margin-top: 4rem;
+}
+
+.footer-inner {
+  margin: 0 auto;
+  max-width: var(--maxw);
+  padding: 2rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.footer-care {
+  margin: 0;
+}
+
+.footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.footer-links a {
+  color: var(--fg);
+  text-decoration: none;
+  border-bottom: 1px solid var(--border);
+}
+.footer-links a:hover {
+  border-bottom-color: currentColor;
+}
+
+.footer-sep {
+  color: var(--border);
+}
+
+.footer-meta {
+  margin: 0;
+}
+
+.footer-version {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Accessibility -------------------------------------------------------- */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Hero ----------------------------------------------------------------- */
+
+.hero {
+  border-bottom: 1px solid var(--border);
+}
+
+.hero-inner {
+  padding-top: 4rem;
+  padding-bottom: 3rem;
+}
+
+.hero-aside {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: 1rem 0 0;
+}
+
+.section-title {
+  font-size: 1.5rem;
+  letter-spacing: -0.01em;
+  margin: 0 0 0.5rem;
+}
+
+.section-lede {
+  color: var(--muted);
+  margin: 0 0 1.5rem;
+  max-width: 60ch;
+}
+
+/* Dropzone ------------------------------------------------------------- */
+
+.dropzone-wrap {
+  max-width: 40rem;
+}
+
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 2.5rem 1.5rem;
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.dropzone:hover,
+.dropzone.is-dragging {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.dropzone-icon {
+  width: 28px;
+  height: 28px;
+  color: var(--muted);
+}
+
+.dropzone-main {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.dropzone-sub,
+.dropzone-hint {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.dropzone-hint {
+  margin: 0.75rem 0 0;
+}
+
+.dropzone-error {
+  color: #b3261e;
+  font-size: 0.875rem;
+  margin: 0.75rem 0 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  .dropzone-error {
+    color: #f2b8b5;
+  }
+}
+
+/* Steps ---------------------------------------------------------------- */
+
+.steps {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  list-style: none;
+  margin: 1.5rem 0 0;
+  padding: 0;
+}
+
+.step h3 {
+  font-size: 1rem;
+  margin: 0.5rem 0 0.25rem;
+}
+
+.step p {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.step-icon {
+  width: 24px;
+  height: 24px;
+  color: var(--accent);
+}
+
+.step-n {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Scorecard ------------------------------------------------------------ */
+
+.scorecard {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  margin: 1rem 0;
+}
+
+.scorecard-head {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+}
+
+.score-letter {
+  font-size: 3.5rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+.score-number {
+  font-size: 1.25rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.score-outof {
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+.score-caption {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+/* Tone tracks the letter band. Never the only signal: the number is printed
+   beside every bar and the letter is spelled out. */
+.tone-A { color: #117733; }
+.tone-B { color: #44AA99; }
+.tone-C { color: #999933; }
+.tone-D { color: #CC6677; }
+.tone-F { color: #882255; }
+.tone-none { color: var(--muted); }
+
+.bar-fill.tone-A { background: #117733; }
+.bar-fill.tone-B { background: #44AA99; }
+.bar-fill.tone-C { background: #999933; }
+.bar-fill.tone-D { background: #CC6677; }
+.bar-fill.tone-F { background: #882255; }
+
+.dimensions {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.dimensions th[scope="row"] {
+  text-align: left;
+  font-weight: 500;
+  padding: 0.5rem 1rem 0.5rem 0;
+  white-space: nowrap;
+  vertical-align: top;
+}
+
+.dimensions td {
+  padding: 0.5rem 0;
+  width: 100%;
+}
+
+.dim-weight {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 0.8rem;
+}
+
+.bar-track {
+  display: inline-block;
+  width: 10rem;
+  height: 0.5rem;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+  vertical-align: middle;
+  margin-right: 0.6rem;
+}
+
+.bar-fill {
+  display: block;
+  height: 100%;
+}
+
+.bar-number {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9rem;
+  margin-right: 0.4rem;
+}
+
+.bar-letter {
+  color: var(--muted);
+  margin-left: 0.35rem;
+}
+
+.dim-note,
+.dim-ungraded {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.dim-ungraded {
+  font-style: italic;
+}
+
+.scorecard-foot,
+.disclosure {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 1rem 0 0;
+  max-width: 66ch;
+}
+
+/* Prose pages ---------------------------------------------------------- */
+
+.prose-page {
+  max-width: 52rem;
+}
+
+.prose-page h2 {
+  margin: 2.5rem 0 0.5rem;
+  font-size: 1.4rem;
+  letter-spacing: -0.01em;
+}
+
+.prose-page h3 {
+  margin: 1.5rem 0 0.5rem;
+  font-size: 1.05rem;
+}
+
+.prose-page p {
+  max-width: 68ch;
+}
+
+.callout {
+  border-left: 3px solid var(--accent);
+  padding: 0.75rem 1rem;
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+/* The disclaimer is verbatim across pages; give it weight without shouting. */
+.disclaimer {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.dimension-notes dt,
+.faq dt {
+  font-weight: 600;
+  margin-top: 1rem;
+}
+
+.dimension-notes dd,
+.faq dd {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+  max-width: 68ch;
+}
+
+.engines {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 1rem;
+}
+
+.engines li {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+}
+
+.engines h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.engine-scope {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin: 0.15rem 0 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.engines p:last-child {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.metrics-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  font-size: 0.9rem;
+}
+
+.metrics-table th,
+.metrics-table td {
+  padding: 0.6rem 0.75rem 0.6rem 0;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+
+.metrics-table thead th {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.metrics-table code {
+  font-size: 0.85em;
+}
+
+.requires {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.tag {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  white-space: nowrap;
+  border: 1px solid currentColor;
+}
+
+.tag-planned { color: #117733; }
+.tag-considering { color: var(--muted); }
+
+.back-home {
+  margin-top: 3rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.header-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  list-style: none;
+  padding: 0;
+}
+
+.header-list code {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.15rem 0.4rem;
+  font-size: 0.85rem;
+}

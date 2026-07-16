@@ -87,6 +87,53 @@
     Severity is assigned based on configurable thresholds. Finding IDs are computed via
     SHA-256 hash of (category, references, evidence) for deduplication.</p>
 
+    {% if grade %}
+    <h3>Grading rubric (v{{ grade.grading_version }})</h3>
+
+    <p><strong>How the score is built:</strong> five dimensions, each scored 0&ndash;100 by
+    piecewise-linear interpolation over a published breakpoint table, then combined as a
+    weighted mean. Every input decomposes to a metric elsewhere in this report, and no
+    language model touches any part of the computation &mdash; the same fleet always
+    produces the same grade.</p>
+
+    <p><strong>Where each dimension anchors:</strong> against the solver benchmark where one
+    exists (the fairest reference is what the solvers proved achievable on your own stops
+    under your own constraints); against the rest of your fleet where industry context would
+    otherwise be needed (stop density varies by industry, consistency does not); and against
+    an absolute standard only where absolutes are honest (a missed time window is missed
+    anywhere).</p>
+
+    <table class="metrics-table">
+      <thead><tr><th>Dimension</th><th>Weight</th><th>Anchored to</th></tr></thead>
+      <tbody>
+        {% for d in grade.dimensions %}
+        <tr>
+          <td>{{ d.label }}</td>
+          <td>{{ "%.0f"|format(grade.weights[d.key] * 100) }}%</td>
+          <td>{{ d.basis | replace('_', ' ') }}{% if d.not_graded %} (not graded){% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <p><strong>Letter bands:</strong> A+ &ge; 97, A &ge; 93, A&minus; &ge; 90, B+ &ge; 87,
+    B &ge; 83, B&minus; &ge; 80, C+ &ge; 77, C &ge; 73, C&minus; &ge; 70, D+ &ge; 67,
+    D &ge; 63, D&minus; &ge; 60, F &lt; 60. The same bands apply to each dimension.</p>
+
+    <p><strong>Ungraded dimensions:</strong> a dimension that cannot be computed for your
+    fleet &mdash; a single-route fleet has no balance to assess, a fleet with no time windows
+    has no violation rate &mdash; is marked not graded, and its weight is redistributed across
+    the rest. It never counts as a zero.</p>
+
+    <p><strong>Calibration:</strong> the v{{ grade.grading_version }} breakpoints are
+    engineering judgment, not empirical calibration against a population of real fleets. They
+    encode what the RouteBench team considers good and poor practice; they are not a
+    percentile against your peers, and RouteBench does not do peer comparison. Any change to
+    a breakpoint or weight bumps the rubric version, and this report permanently displays the
+    version it was graded under &mdash; so a future rubric change can never silently
+    reinterpret this score.</p>
+    {% endif %}
+
     {% if analyses_run %}
     <p><strong>Analyses run:</strong> {{ analyses_run | join(', ') }}</p>
     {% endif %}

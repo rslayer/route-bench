@@ -41,6 +41,7 @@ class SessionArtifacts(BaseModel):
     report_pdf: str = ""
     analysis_json: str = ""
     telemetry_json: str = ""
+    routes_geojson: str = ""
 
 
 class CostSummary(BaseModel):

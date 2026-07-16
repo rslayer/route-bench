@@ -20,6 +20,7 @@ from routebench.app.sessions import SessionRegistry, SessionState, SessionStatus
 from routebench.app.worker import JobRequest
 from routebench.core.config import MAX_UPLOAD_BYTES, AnalysisConfig
 from routebench.core.validation import validate_csv
+from routebench.core.version import build_info
 from routebench.infra.storage.local import LocalStorageBackend
 
 limiter = Limiter(key_func=get_remote_address)
@@ -224,6 +225,52 @@ async def download_report_pdf(request: Request, session_id: str) -> RedirectResp
         return Response(content=data, media_type="application/pdf")
     url = await storage.presigned_url(session_id, "report.pdf")
     return RedirectResponse(url=url, status_code=302)
+
+
+@router.get("/sessions/{session_id}/analysis.json", response_model=None)
+async def download_analysis_json(request: Request, session_id: str) -> RedirectResponse | Response:
+    """The structured analysis — findings, metrics, benchmark.
+
+    The UI renders from this rather than re-deriving anything: it is the same
+    artifact the report was built from, so the page and the PDF cannot disagree.
+    """
+    storage = request.app.state.storage
+    if not await storage.exists(session_id, "analysis.json"):
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    if isinstance(storage, LocalStorageBackend):
+        data = await storage.read(session_id, "analysis.json")
+        return Response(content=data, media_type="application/json")
+    url = await storage.presigned_url(session_id, "analysis.json")
+    return RedirectResponse(url=url, status_code=302)
+
+
+@router.get("/sessions/{session_id}/routes.geojson", response_model=None)
+async def download_routes_geojson(request: Request, session_id: str) -> RedirectResponse | Response:
+    """The map artifact — route lines, stops, depots, migration arrows.
+
+    Geometry is approximate (straight segments between stops, not driven road
+    paths); the collection's `geometry_approximate` property says so and the UI
+    is expected to surface it.
+    """
+    storage = request.app.state.storage
+    if not await storage.exists(session_id, "routes.geojson"):
+        raise HTTPException(status_code=404, detail="Map data not found")
+    if isinstance(storage, LocalStorageBackend):
+        data = await storage.read(session_id, "routes.geojson")
+        return Response(content=data, media_type="application/geo+json")
+    url = await storage.presigned_url(session_id, "routes.geojson")
+    return RedirectResponse(url=url, status_code=302)
+
+
+@router.get("/health")
+async def health() -> JSONResponse:
+    """Build identity for the web footer: `v{X.Y.Z} · build {short_sha}`.
+
+    Deliberately dependency-free and always 200 — this answers "what is
+    deployed", not "is it working". /healthz is the readiness probe that checks
+    OSRM and storage, and a footer must not go blank because OSRM is down.
+    """
+    return JSONResponse(status_code=200, content=build_info())
 
 
 @router.get("/healthz")

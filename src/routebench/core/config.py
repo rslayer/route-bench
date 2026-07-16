@@ -174,6 +174,13 @@ class Settings(BaseSettings):
     # OSRM
     osrm_host: str = "http://localhost:5000"
 
+    # Web UI origin(s) allowed to call this API cross-origin. Comma-separated;
+    # empty disables CORS entirely (the co-hosted Streamlit case, same-origin).
+    # Never set this to "*": the API hands out session artifacts addressable by
+    # an unguessable URL, and a wildcard would let any page that learns a
+    # session id read its report.
+    web_origin: str = ""
+
     # General
     log_level: str = "INFO"
     storage_path: str = "./data/sessions"
@@ -205,3 +212,7 @@ class Settings(BaseSettings):
 
     # Sentry
     sentry_dsn: str = ""
+
+    def web_origins(self) -> list[str]:
+        """Parsed CORS allowlist. Empty means same-origin only."""
+        return [o.strip() for o in self.web_origin.split(",") if o.strip()]

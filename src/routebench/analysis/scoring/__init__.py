@@ -94,8 +94,13 @@ def compute_scorecard(
         svc_time_hrs = _f(time_metrics["service_time_hours"])
         idle_time_hrs = _f(time_metrics["idle_time_hours"])
         stops_per_hr = _f(density_metrics["stops_per_hour"])
+        stops_per_mi = _f(density_metrics["stops_per_mile"])
         shift_overrun = _f(compliance_metrics["shift_overrun_minutes"])
         tw_violations = _i(compliance_metrics["time_window_violations"])
+        lunch_ok = bool(compliance_metrics["lunch_taken_within_window"])
+        # Only windows that can be violated count: an open-ended window is
+        # not a commitment the plan can miss.
+        n_with_windows = sum(1 for s in route.stops if s.time_window_end is not None)
         cap_util: dict[str, float] = util_metrics["capacity_utilization"]  # type: ignore[assignment]
 
         rm = RouteMetrics(
@@ -107,10 +112,13 @@ def compute_scorecard(
             idle_time_hours=idle_time_hrs,
             stop_count=len(route.stops),
             stops_per_hour=stops_per_hr,
+            stops_per_mile=stops_per_mi,
             sequencing_index=seq_index,
             capacity_utilization=cap_util,
             time_window_violations=tw_violations,
+            stops_with_windows=n_with_windows,
             shift_overrun_minutes=shift_overrun,
+            lunch_taken_within_window=lunch_ok,
         )
 
         if seq_index is not None:

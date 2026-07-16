@@ -31,11 +31,13 @@ from routebench.core.config import (
 )
 from routebench.core.exceptions import BudgetExceededError, RouteBenchError
 from routebench.core.validation import validate_csv
+from routebench.infra.geometry import OSRMGeometryProvider
 from routebench.infra.matrix.base import MatrixProvider
 from routebench.infra.matrix.traffic import TrafficAdjustedProvider
 from routebench.infra.storage.base import StorageBackend
 from routebench.infra.telemetry import Telemetry
 from routebench.report.document import ReportDocument
+from routebench.report.geojson import build_routes_geojson
 from routebench.report.pdf import render_pdf
 from routebench.report.prose_slots import ProseSlot, identify_prose_slots
 
@@ -136,6 +138,23 @@ async def run_session(
         _check_token_cap()
         await _emit("analyzing", 45, f"Analysis complete: {len(analysis.findings)} findings")
 
+        # Part D: log the score distribution so the v1.0 breakpoints — which are
+        # engineering judgment, not calibration — can be recalibrated once real
+        # uploads accumulate. Dimension scores only: no coordinates, no route
+        # ids, nothing identifying the fleet.
+        if analysis.grade is not None:
+            logger.info(
+                "grade_distribution",
+                session_id=session_id,
+                grading_version=analysis.grade.grading_version,
+                overall_score=analysis.grade.overall.score,
+                overall_letter=analysis.grade.overall.letter,
+                dimensions={
+                    d.key: {"score": d.score, "basis": d.basis, "not_graded": d.not_graded}
+                    for d in analysis.grade.dimensions
+                },
+            )
+
         # Stage 3: Write prose
         await _emit("writing", 50, "Generating report prose")
         doc = ReportDocument(analysis)
@@ -187,6 +206,15 @@ async def run_session(
         analysis_data = analysis.model_dump_json(indent=2).encode()
         await storage.write(session_id, "analysis.json", analysis_data)
 
+        # Map artifact for the web UI. The UI renders geography, it never
+        # computes it, so everything the map needs ships here. Geometry fetching
+        # is blocking HTTP per route, hence the thread; it degrades to straight
+        # lines rather than failing an analysis that already has real findings.
+        geometry_provider = OSRMGeometryProvider(host=deps.settings.osrm_host)
+        routes_geojson = await asyncio.to_thread(build_routes_geojson, analysis, geometry_provider)
+        geojson_data = json.dumps(routes_geojson, indent=2).encode()
+        await storage.write(session_id, "routes.geojson", geojson_data)
+
         telemetry_data = json.dumps(session_telemetry.summary(), indent=2).encode()
         await storage.write(session_id, "telemetry.json", telemetry_data)
 
@@ -211,6 +239,7 @@ async def run_session(
             report_pdf="report.pdf" if pdf_bytes else "",
             analysis_json="analysis.json",
             telemetry_json="telemetry.json",
+            routes_geojson="routes.geojson",
         )
 
         await _emit("succeeded", 100, "Report ready")

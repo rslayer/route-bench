@@ -103,10 +103,18 @@ class RouteMetrics(BaseModel):
     idle_time_hours: float
     stop_count: int
     stops_per_hour: float
+    # Grading reads this for the density dimension. It was computed and dropped
+    # before, which left the rubric with no artifact-recomputable input.
+    stops_per_mile: float = 0.0
     sequencing_index: float | None = None
     capacity_utilization: dict[str, float] = Field(default_factory=dict)
     time_window_violations: int = 0
+    # Denominator for the violation rate: a fleet with no windows cannot have a
+    # violation rate, and dividing by total stops would silently score it 100%.
+    stops_with_windows: int = 0
     shift_overrun_minutes: float = 0.0
+    # Grading reads this for operational compliance. Also computed and dropped.
+    lunch_taken_within_window: bool = True
 
 
 class FleetMetrics(BaseModel):
@@ -151,6 +159,11 @@ class RouteBenchmark(BaseModel):
     # The solver is a time-limited metaheuristic, so the real waste is at least
     # this figure.
     improvement_gap_pct: float
+    # The solver's tour as matrix indices (1..n; 0 is the depot), in visit order.
+    # Without this the report can say a plan is 12% worse than the solver's tour
+    # but never show which tour, so no consumer can draw or act on it. Empty
+    # when the solver produced no reorderable sequence (0- and 1-stop routes).
+    stop_order: list[int] = Field(default_factory=list)
 
 
 class FleetBenchmark(BaseModel):
@@ -176,6 +189,51 @@ class BenchmarkResult(BaseModel):
     fleet_level: FleetBenchmark | None = None
 
 
+class OverallGrade(BaseModel):
+    """The composite score. None when nothing could be graded."""
+
+    score: float | None = None
+    letter: str | None = None
+
+
+class DimensionGrade(BaseModel):
+    """One graded dimension.
+
+    `basis` records what the score was anchored to, because the same dimension
+    degrades gracefully rather than disappearing: sequencing falls back from
+    "benchmark" to "heuristic", fleet to "balance_only", compliance to
+    "operational_only". A reader needs to know which they got.
+
+    Every `inputs` value must be recomputable from metrics elsewhere in the
+    artifact — that is the explainability guarantee. Do not put a number here
+    that cannot be checked against route_metrics or benchmark.
+    """
+
+    key: str
+    label: str
+    score: float | None = None
+    letter: str | None = None
+    basis: str
+    not_graded: bool = False
+    inputs: dict[str, object] = Field(default_factory=dict)
+    explanation_slot_id: str = ""
+
+
+class Grade(BaseModel):
+    """A fleet's quality score, decomposed.
+
+    `grading_version` is load-bearing: a rubric change must never silently
+    reinterpret an old report, so reports display the version they were graded
+    under and the sample-fleet snapshot fails CI until the version is bumped
+    deliberately.
+    """
+
+    grading_version: str
+    overall: OverallGrade
+    weights: dict[str, float] = Field(default_factory=dict)
+    dimensions: list[DimensionGrade] = Field(default_factory=list)
+
+
 class AnalysisReport(BaseModel):
     """Complete analysis output: metrics, findings, and optional benchmark."""
 
@@ -184,6 +242,9 @@ class AnalysisReport(BaseModel):
     route_metrics: dict[str, RouteMetrics]
     findings: list[Finding]
     benchmark: BenchmarkResult | None = None
+    # The quality score. Optional so an artifact written before Phase 10.6 still
+    # loads (admin replay reads old analysis.json files).
+    grade: Grade | None = None
     analyses_run: list[str]
     analyses_skipped: list[tuple[str, str]]
     metadata: dict[str, object]
