@@ -151,6 +151,11 @@ class RouteBenchmark(BaseModel):
     # The solver is a time-limited metaheuristic, so the real waste is at least
     # this figure.
     improvement_gap_pct: float
+    # The solver's tour as matrix indices (1..n; 0 is the depot), in visit order.
+    # Without this the report can say a plan is 12% worse than the solver's tour
+    # but never show which tour, so no consumer can draw or act on it. Empty
+    # when the solver produced no reorderable sequence (0- and 1-stop routes).
+    stop_order: list[int] = Field(default_factory=list)
 
 
 class FleetBenchmark(BaseModel):

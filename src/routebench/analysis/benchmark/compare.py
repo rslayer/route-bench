@@ -48,6 +48,10 @@ def compute_route_benchmark(
         time_gap_pct=time_gap,
         # Solvers report a fraction; this field is a percentage, like its siblings.
         improvement_gap_pct=optimal.optimality_gap * 100.0,
+        # Carry the solver's tour through. It costs the whole benchmark to
+        # compute and was previously discarded, leaving consumers told a better
+        # sequence exists but never shown it.
+        stop_order=list(optimal.stop_order),
     )
 
 

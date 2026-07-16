@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from routebench.agent.client import LLMClient
@@ -20,6 +21,7 @@ from routebench.app.sessions import SessionRegistry
 from routebench.app.telemetry_sink import TelemetrySink
 from routebench.app.worker import SessionWorker
 from routebench.core.config import Settings
+from routebench.core.version import package_version
 from routebench.infra.matrix.osrm import OSRMMatrixProvider
 from routebench.infra.storage.base import StorageBackend
 from routebench.infra.storage.local import LocalStorageBackend
@@ -142,9 +144,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(
         title="RouteBench",
         description="Route benchmarking API",
-        version="0.2.0",
+        version=package_version(),
         lifespan=lifespan,
     )
+
+    # CORS for the standalone web app, which is a separate origin. Off by
+    # default: with no WEB_ORIGIN set this is same-origin only, as it was.
+    # Explicit allowlist, never "*" — session artifacts are protected only by an
+    # unguessable URL, so a wildcard would let any page that learns a session id
+    # read its report.
+    origins = settings.web_origins()
+    if origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_credentials=False,
+            allow_methods=["GET", "POST", "OPTIONS"],
+            allow_headers=["*"],
+        )
+        logger.info("cors_enabled", origins=origins)
 
     # Rate limiting
     from slowapi import Limiter

@@ -48,6 +48,14 @@ COPY supervisord.conf /etc/supervisor/conf.d/routebench.conf
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONPATH="/app/src"
 
+# Build identity for GET /health and the web footer. A running container has no
+# .git directory, so the commit has to be baked in at build time:
+#   docker build --build-arg GIT_SHA=$(git rev-parse HEAD) .
+#   fly deploy --build-arg GIT_SHA=$(git rev-parse HEAD)
+# Absent, /health reports commit "unknown" rather than guessing.
+ARG GIT_SHA=""
+ENV GIT_SHA=${GIT_SHA}
+
 # Create data directories
 RUN mkdir -p /app/data/sessions /app/data/samples
 

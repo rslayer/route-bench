@@ -36,6 +36,7 @@ from routebench.infra.matrix.traffic import TrafficAdjustedProvider
 from routebench.infra.storage.base import StorageBackend
 from routebench.infra.telemetry import Telemetry
 from routebench.report.document import ReportDocument
+from routebench.report.geojson import build_routes_geojson
 from routebench.report.pdf import render_pdf
 from routebench.report.prose_slots import ProseSlot, identify_prose_slots
 
@@ -187,6 +188,11 @@ async def run_session(
         analysis_data = analysis.model_dump_json(indent=2).encode()
         await storage.write(session_id, "analysis.json", analysis_data)
 
+        # Map artifact for the web UI. The UI renders geography, it never
+        # computes it, so everything the map needs ships here.
+        geojson_data = json.dumps(build_routes_geojson(analysis), indent=2).encode()
+        await storage.write(session_id, "routes.geojson", geojson_data)
+
         telemetry_data = json.dumps(session_telemetry.summary(), indent=2).encode()
         await storage.write(session_id, "telemetry.json", telemetry_data)
 
@@ -211,6 +217,7 @@ async def run_session(
             report_pdf="report.pdf" if pdf_bytes else "",
             analysis_json="analysis.json",
             telemetry_json="telemetry.json",
+            routes_geojson="routes.geojson",
         )
 
         await _emit("succeeded", 100, "Report ready")
