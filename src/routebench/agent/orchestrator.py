@@ -12,6 +12,7 @@ from routebench.agent.tool_specs import build_tool_specs
 from routebench.analysis.benchmark.fleet_matrix import get_fleet_matrix
 from routebench.analysis.scoring import compute_scorecard
 from routebench.analysis.scoring.distance import get_route_matrix
+from routebench.analysis.scoring.grading import compute_grade
 from routebench.analysis.tools import TOOLS, AnalysisTool
 from routebench.core.config import AnalysisConfig
 from routebench.core.findings import (
@@ -269,11 +270,21 @@ class AnalysisOrchestrator:
         analyses_skipped: list[tuple[str, str]],
         benchmark: BenchmarkResult | None = None,
     ) -> AnalysisReport:
+        # Graded last: the rubric reads findings (territory overlap) and the
+        # benchmark, so it must run after both exist.
+        grade = compute_grade(
+            fleet_metrics=fleet_metrics,
+            route_metrics=route_metrics,
+            findings=findings,
+            benchmark=benchmark,
+        )
+
         return AnalysisReport(
             fleet=fleet,
             fleet_metrics=fleet_metrics,
             route_metrics=route_metrics,
             findings=findings,
+            grade=grade,
             benchmark=benchmark,
             analyses_run=analyses_run,
             analyses_skipped=analyses_skipped,

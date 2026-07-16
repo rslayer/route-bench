@@ -19,6 +19,7 @@ SlotType = Literal[
     "finding_explanation",
     "cross_fleet_synthesis",
     "investigation_priorities",
+    "grade_overall",
 ]
 
 _MAX_FINDING_EXPLANATIONS = 15
@@ -75,6 +76,20 @@ def identify_prose_slots(report: AnalysisReport) -> list[ProseSlot]:
             required_references=[f.finding_id for f in top_findings[:3]],
         )
     )
+
+    # Grade narrative. Source data is the grade object itself, so the verifier
+    # checks every number in the prose against the same object the scorecard
+    # rendered — the grade cannot be described as anything other than what it is.
+    if report.grade is not None and report.grade.overall.score is not None:
+        slots.append(
+            ProseSlot(
+                slot_id="grade_overall",
+                slot_type="grade_overall",
+                prompt_template="writer_grade_overall",
+                input_data={"grade": report.grade.model_dump()},
+                word_budget=90,
+            )
+        )
 
     # Fleet overview narrative (always)
     slots.append(

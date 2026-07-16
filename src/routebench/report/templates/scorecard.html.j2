@@ -1,0 +1,58 @@
+{# Quality score header — the headline of the report. #}
+{% if grade and grade.overall.score is not none %}
+<div class="section" id="quality-score">
+  <h2>Quality Score</h2>
+
+  <div class="scorecard">
+    <div class="scorecard-grade">
+      {# Letters are ASCII in the data ("A-"); render the typographic minus for
+         display only, and keep the CSS class ASCII-safe. #}
+      <span class="grade-letter grade-{{ grade.overall.letter | replace('+','plus') | replace('-','minus') }}">{{ grade.overall.letter | replace('-','−') }}</span>
+      <span class="grade-score">{{ "%.1f"|format(grade.overall.score) }}<span class="grade-outof">/100</span></span>
+    </div>
+
+    <table class="metrics-table dimension-bars">
+      <thead>
+        <tr><th>Dimension</th><th>Score</th><th>Weight</th><th>Basis</th></tr>
+      </thead>
+      <tbody>
+        {% for d in grade.dimensions %}
+        <tr>
+          <td>{{ d.label }}</td>
+          <td>
+            {%- if d.not_graded -%}
+              <span class="not-graded">not graded</span>
+            {%- else -%}
+              <span class="bar-wrap" role="img" aria-label="{{ "%.0f"|format(d.score) }} out of 100">
+                <span class="bar" style="width: {{ "%.0f"|format(d.score) }}%"></span>
+              </span>
+              <span class="bar-value">{{ "%.1f"|format(d.score) }} {{ d.letter | replace('-','−') }}</span>
+            {%- endif -%}
+          </td>
+          <td>{{ "%.0f"|format(grade.weights[d.key] * 100) }}%</td>
+          <td class="basis">{{ d.basis | replace('_', ' ') }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if prose.get('grade_overall') %}
+  <div class="prose">{{ prose['grade_overall'] }}</div>
+  {% endif %}
+
+  {% set ungraded = grade.dimensions | selectattr('not_graded') | list %}
+  {% if ungraded %}
+  <p class="methodology">
+    {{ ungraded | length }} dimension{{ '' if ungraded|length == 1 else 's' }} could not be graded
+    for this fleet ({% for d in ungraded %}{{ d.label }} — {{ d.inputs.get('reason', 'not applicable') }}{% if not loop.last %}; {% endif %}{% endfor %}).
+    The overall score is a weighted mean over the dimensions that were graded, with the
+    remaining weights renormalised — an ungraded dimension does not count as zero.
+  </p>
+  {% endif %}
+
+  <p class="methodology">
+    Graded under rubric v{{ grade.grading_version }}. See Methodology for the full rubric.
+  </p>
+</div>
+{% endif %}

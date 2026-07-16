@@ -94,6 +94,7 @@ class ReportDocument:
             route_metrics=self._analysis.route_metrics,
             findings=sorted_findings,
             benchmark=self._analysis.benchmark,
+            grade=self._analysis.grade,
             prose=prose,
             charts=charts,
             maps=maps,

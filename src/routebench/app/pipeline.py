@@ -138,6 +138,23 @@ async def run_session(
         _check_token_cap()
         await _emit("analyzing", 45, f"Analysis complete: {len(analysis.findings)} findings")
 
+        # Part D: log the score distribution so the v1.0 breakpoints — which are
+        # engineering judgment, not calibration — can be recalibrated once real
+        # uploads accumulate. Dimension scores only: no coordinates, no route
+        # ids, nothing identifying the fleet.
+        if analysis.grade is not None:
+            logger.info(
+                "grade_distribution",
+                session_id=session_id,
+                grading_version=analysis.grade.grading_version,
+                overall_score=analysis.grade.overall.score,
+                overall_letter=analysis.grade.overall.letter,
+                dimensions={
+                    d.key: {"score": d.score, "basis": d.basis, "not_graded": d.not_graded}
+                    for d in analysis.grade.dimensions
+                },
+            )
+
         # Stage 3: Write prose
         await _emit("writing", 50, "Generating report prose")
         doc = ReportDocument(analysis)

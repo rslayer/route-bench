@@ -125,10 +125,14 @@ export interface RouteMetrics {
   idle_time_hours: number;
   stop_count: number;
   stops_per_hour: number;
+  stops_per_mile: number;
   sequencing_index: number | null;
   capacity_utilization: Record<string, number>;
   time_window_violations: number;
+  /** Denominator for the violation rate — stops that HAVE a window. */
+  stops_with_windows: number;
   shift_overrun_minutes: number;
+  lunch_taken_within_window: boolean;
 }
 
 export interface FleetMetrics {
@@ -214,12 +218,76 @@ export interface Fleet {
   uploaded_at: string;
 }
 
+// ---------------------------------------------------------------------------
+// Grade — src/routebench/analysis/scoring/grading.py
+// ---------------------------------------------------------------------------
+
+/** ASCII, not typographic: "A-" not "A−". Render the pretty minus if you like. */
+export type GradeLetter =
+  | "A+" | "A" | "A-"
+  | "B+" | "B" | "B-"
+  | "C+" | "C" | "C-"
+  | "D+" | "D" | "D-"
+  | "F";
+
+export type DimensionKey =
+  | "sequencing"
+  | "fleet"
+  | "time"
+  | "compliance"
+  | "density";
+
+/**
+ * What a dimension's score was anchored to. It matters to the reader:
+ * "heuristic" is a weaker proxy than "benchmark", and *_only bases mean part of
+ * the dimension could not be assessed for this fleet.
+ */
+export type GradeBasis =
+  | "benchmark"
+  | "heuristic"
+  | "balance_only"
+  | "absolute"
+  | "operational_only"
+  | "fleet_relative"
+  | "insufficient_routes"
+  | "insufficient_data";
+
+export interface OverallGrade {
+  /** Null when nothing could be graded. */
+  score: number | null;
+  letter: GradeLetter | null;
+}
+
+export interface DimensionGrade {
+  key: DimensionKey;
+  label: string;
+  /** Null when not_graded. Do NOT render this as 0. */
+  score: number | null;
+  letter: GradeLetter | null;
+  basis: GradeBasis;
+  /** True means "could not be computed for this fleet", never "scored badly". */
+  not_graded: boolean;
+  /** Every value is recomputable from metrics elsewhere in the artifact. */
+  inputs: Record<string, number | string>;
+  explanation_slot_id: string;
+}
+
+export interface Grade {
+  /** Reports display the rubric version they were graded under. */
+  grading_version: string;
+  overall: OverallGrade;
+  weights: Record<DimensionKey, number>;
+  dimensions: DimensionGrade[];
+}
+
 export interface AnalysisReport {
   fleet: Fleet;
   fleet_metrics: FleetMetrics;
   route_metrics: Record<string, RouteMetrics>;
   findings: Finding[];
   benchmark: BenchmarkResult | null;
+  /** Null for artifacts written before the grading engine (Phase 10.6). */
+  grade: Grade | null;
   analyses_run: string[];
   /** [tool_name, reason] — why a tool did not run, e.g. the fleet-benchmark cap. */
   analyses_skipped: [string, string][];
