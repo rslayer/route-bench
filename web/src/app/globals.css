@@ -1,0 +1,154 @@
+/* Design tokens. One decision per screen means the type scale and spacing carry
+   the hierarchy — there is no component library here to lean on. */
+:root {
+  --bg: #ffffff;
+  --fg: #16161a;
+  --muted: #5c5f6b;
+  --border: #e3e4e8;
+  --accent: #332288;
+  --accent-fg: #ffffff;
+  --radius: 8px;
+  --maxw: 68rem;
+  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101014;
+    --fg: #f2f2f4;
+    --muted: #a1a4ae;
+    --border: #2a2b33;
+    --accent: #a99ce0;
+    --accent-fg: #101014;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+.page {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+}
+
+main {
+  flex: 1;
+}
+
+.container {
+  margin: 0 auto;
+  max-width: var(--maxw);
+  padding: 3rem 1.5rem;
+}
+
+h1 {
+  font-size: clamp(2rem, 5vw, 3rem);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.75rem;
+}
+
+.lede {
+  color: var(--muted);
+  font-size: 1.15rem;
+  margin: 0 0 2rem;
+  max-width: 46ch;
+}
+
+.scaffold-note {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+a {
+  color: inherit;
+}
+
+/* Visible only when focused — the first tab stop on every page. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--accent);
+  color: var(--accent-fg);
+  padding: 0.5rem 1rem;
+  z-index: 100;
+}
+.skip-link:focus {
+  left: 0;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Footer ------------------------------------------------------------------ */
+
+.footer {
+  border-top: 1px solid var(--border);
+  margin-top: 4rem;
+}
+
+.footer-inner {
+  margin: 0 auto;
+  max-width: var(--maxw);
+  padding: 2rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.footer-care {
+  margin: 0;
+}
+
+.footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.footer-links a {
+  color: var(--fg);
+  text-decoration: none;
+  border-bottom: 1px solid var(--border);
+}
+.footer-links a:hover {
+  border-bottom-color: currentColor;
+}
+
+.footer-sep {
+  color: var(--border);
+}
+
+.footer-meta {
+  margin: 0;
+}
+
+.footer-version {
+  font-variant-numeric: tabular-nums;
+}

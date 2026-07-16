@@ -14,3 +14,12 @@ data/matrix_cache/
 
 # Claude Code local config
 .claude/
+
+# Web app (routebench-web)
+node_modules/
+web/.next/
+web/out/
+web/next-env.d.ts
+web/*.tsbuildinfo
+web/playwright-report/
+web/test-results/
