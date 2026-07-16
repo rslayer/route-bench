@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Route benchmarking tool — scores routes, identifies inefficiencies, benchmarks against theoretical optimum"
 readme = "README.md"
 requires-python = ">=3.12"
-license = {text = "MIT"}
+license = {text = "FSL-1.1-ALv2"}
 dependencies = [
     "pydantic>=2.0",
     "pydantic-settings",

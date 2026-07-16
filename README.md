@@ -232,3 +232,17 @@ route-bench/
 ├── scripts/
 └── notebooks/
 ```
+
+## License
+
+RouteBench is **Fair Source** software, licensed under the [Functional Source License, Version 1.1, ALv2 Future License (FSL-1.1-ALv2)](LICENSE.md).
+
+In plain terms:
+
+- **You may** read, run, copy, modify, and redistribute this code for any Permitted Purpose — including internal use, education, research, auditing our methodology, and building non-competing products or services.
+- **You may not** offer RouteBench, or a substitute for it, as a commercial hosted service that competes with RouteBench.
+- **Every release converts to Apache 2.0 two years after its publication date**, at which point that version is fully open source with no restrictions.
+
+We keep the methodology public on purpose: a route benchmarking referee should be auditable. If you believe our scoring, diagnostics, or solver comparison is wrong, the code is right here — open an issue.
+
+This license is not an OSI-approved open source license during its first two years. If your use case is blocked by the competing-use restriction, contact the author.
