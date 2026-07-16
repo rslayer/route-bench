@@ -19,9 +19,23 @@ import type { RouteFeature, RoutesGeoJSON, StopProps } from "@/lib/types";
  * from routes.geojson.
  */
 
-// OpenFreeMap: no key, no quota, no tracking. Protomaps/R2 is the fallback if it
-// ever goes away; the style URL is the only thing that changes.
-const STYLE_URL = "https://tiles.openfreemap.org/styles/positron";
+// OpenFreeMap: no key, no quota, no tracking. Protomaps/R2 is the fallback if
+// it ever goes away; the style URL is the only thing that changes.
+//
+// The basemap follows the page theme. A bright map inside a dark page is the
+// single most jarring thing about a half-themed app, and it also wrecks
+// contrast: our route colours are chosen against the page, not against a
+// basemap that disagrees with it.
+const STYLE_URL: Record<"light" | "dark", string> = {
+  light: "https://tiles.openfreemap.org/styles/positron",
+  dark: "https://tiles.openfreemap.org/styles/dark",
+};
+
+/** Read the theme the inline script stamped on <html>. */
+function currentTheme(): "light" | "dark" {
+  if (typeof document === "undefined") return "light";
+  return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+}
 
 export type MapMode = "actual" | "optimal" | "split";
 
@@ -118,6 +132,8 @@ export default function RouteMap({
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
   const popup = useRef<maplibregl.Popup | null>(null);
+  // Which basemap is currently loaded, so a theme change is detected once.
+  const appliedTheme = useRef<"light" | "dark">("light");
   const [ready, setReady] = useState(false);
 
   const visible = useMemo(() => [...visibleRoutes], [visibleRoutes]);
@@ -127,9 +143,10 @@ export default function RouteMap({
   useEffect(() => {
     if (!container.current || map.current) return;
 
+    appliedTheme.current = currentTheme();
     const instance = new maplibregl.Map({
       container: container.current,
-      style: STYLE_URL,
+      style: STYLE_URL[appliedTheme.current],
       bounds: geojson.bbox ?? [-97, 32, -96, 33],
       fitBoundsOptions: { padding: 48 },
       attributionControl: { compact: true },
@@ -141,7 +158,7 @@ export default function RouteMap({
     instance.getCanvas().setAttribute("tabindex", "0");
     instance.getCanvas().setAttribute("aria-label", "Route map");
 
-    instance.on("load", () => {
+    const buildLayers = () => {
       // generateId assigns each feature a numeric id from its index in the
       // features array. setFeatureState needs an id and the pipeline's GeoJSON
       // has none, so without this every dim/highlight call silently no-ops.
@@ -252,6 +269,25 @@ export default function RouteMap({
       });
 
       setReady(true);
+    };
+
+    instance.on("load", buildLayers);
+
+    // Switching theme replaces the basemap, and setStyle drops every custom
+    // source and layer with it — so they have to be rebuilt on the far side.
+    // Watching <html data-theme> rather than the media query catches an explicit
+    // Light/Dark choice too, not just an OS change.
+    const themeObserver = new MutationObserver(() => {
+      const next = currentTheme();
+      if (next === appliedTheme.current) return;
+      appliedTheme.current = next;
+      setReady(false);
+      instance.setStyle(STYLE_URL[next]);
+      instance.once("styledata", buildLayers);
+    });
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
     });
 
     // MapLibre measures its container once at construction. Ours is inside a
@@ -265,6 +301,7 @@ export default function RouteMap({
     map.current = instance;
     return () => {
       observer.disconnect();
+      themeObserver.disconnect();
       instance.remove();
       map.current = null;
     };
