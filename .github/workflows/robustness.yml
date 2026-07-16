@@ -1,0 +1,236 @@
+# .github/workflows/robustness.yml
+#
+# Adversarial ROBUSTNESS harness for route-bench.
+#
+# A different-model agent probes the public surface for robustness weaknesses,
+# writes REPRODUCING failing pytest tests, and opens a PR with a findings
+# report. It NEVER edits product code: everything under `src/routebench/` is
+# read-only, and a guard step fails the run if any product file changes.
+# The failing tests ARE the deliverable — each one documents a real defect.
+#
+# No OSRM or Docker needed: the pre-provided fixtures in
+# tests/adversary/conftest.py stub the matrix provider, so the whole analysis
+# pipeline is reachable in-process.
+#
+# Trigger: workflow_dispatch ONLY (Actions -> "Run workflow", or
+#   `gh workflow run robustness.yml`). claude-code-action does not support
+#   the `push` event, so there is deliberately no push trigger.
+#
+# Setup once (repo admin): add the CLAUDE_CODE_OAUTH_TOKEN secret to THIS
+#   repo (Settings -> Secrets and variables -> Actions), or run
+#   `/install-github-app` from Claude Code inside this repo.
+
+name: robustness
+
+on:
+  workflow_dispatch:
+    inputs:
+      focus:
+        description: "Optional area to focus the adversary on (e.g. 'CSV validation', 'traffic profile')"
+        required: false
+        default: ""
+
+concurrency:
+  group: robustness-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write            # commit findings to a branch
+  pull-requests: write       # open the findings PR
+  id-token: write            # OIDC token for anthropics/claude-code-action
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      # --- ADVERSARY (read-only on product code) ---
+      # continue-on-error: a turn-cap stop must not abort the run; whatever
+      # tests/report the adversary produced still flow to the findings PR.
+      - name: Adversary probe
+        continue-on-error: true
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            You are an ADVERSARY doing a THOROUGH robustness audit of
+            RouteBench, a route-benchmarking service. Your job is breadth AND
+            depth: probe every category below, not just the first bug you find.
+
+            STRICT RULE: treat everything under `src/routebench/` as READ-ONLY.
+            Read product code to understand it, but do NOT modify, add, or
+            delete any file under `src/routebench/`. You may only WRITE under
+            `tests/adversary/` and `reports/adversary/`.
+
+            SETUP IS ALREADY DONE FOR YOU. `tests/adversary/conftest.py` has
+            VERIFIED working fixtures — use them, do not rebuild them:
+              - `client`               — in-process TestClient, no network/OSRM.
+                                         raise_server_exceptions=False, so an
+                                         unhandled 500 arrives as a response.
+              - `stub_matrix_provider` — travel times without OSRM, so the whole
+                                         analysis pipeline is reachable.
+              - `storage`, `settings`  — tmp-backed.
+              - `VALID_CSV`, `upload()` — a known-good CSV and a POST helper.
+            NOTE: stop_sequence=0 is the DEPOT row. A CSV without one is
+            rejected 422 MISSING_DEPOT — that is correct behaviour, not a bug.
+
+            Surface to attack (all reachable in-process, no OSRM):
+              POST /sessions            — multipart CSV upload + `config` JSON.
+                                          Validates the CSV synchronously BEFORE
+                                          enqueuing, so all validation paths are
+                                          reachable without a running worker.
+              GET  /sessions/{id}       — status polling
+              GET  /healthz             — health
+              /admin/*                  — token-gated (settings.admin_token)
+            Library surface (import and call directly — often more fruitful):
+              routebench.core.validation.validate_csv     — parses ARBITRARY
+                                          uploaded files. Biggest attack surface
+                                          in the repo; nothing has ever fuzzed it.
+              routebench.core.config.AnalysisConfig / TrafficProfile
+                                        — user-supplied JSON; band overlap/wrap
+                                          validation is new and untested by fuzz.
+              routebench.agent.verifier.verify_slot
+                                        — its whole job is resisting bad input;
+                                          number extraction was just rewritten.
+              routebench.app.budget.BudgetTracker         — JSONL ledger; torn
+                                          lines, weird costs.
+              routebench.infra.storage.local.LocalStorageBackend
+                                        — read_object/append_object join a
+                                          caller-supplied key onto a base path.
+
+            FIRST read the request models, the CSV validator, and the config
+            models so you know the real schema (column names, bounds, required
+            vs optional) before attacking. A finding that misreads the schema is
+            noise, not a defect.
+
+            COVERAGE IS MANDATORY. Work through EVERY category below. Do NOT
+            stop after the first defect — a single-finding run is a FAILED run.
+            Budget your turns to reach all of them:
+              1.  CSV structure: no header, header only, duplicate columns, BOM,
+                  CRLF vs LF, ragged rows, embedded quotes/newlines/delimiters,
+                  trailing commas, blank lines, huge single field
+              2.  Coordinates: lat > 90 / < -90, lon > 180 / < -180, NaN,
+                  Infinity, 1e400, swapped lat/lon, precision extremes (1e-15)
+              3.  Wrong types: null / string / bool / array where a number is
+                  expected; non-numeric stop_sequence; negative service times
+              4.  stop_sequence: missing depot (expected 422), duplicate,
+                  non-contiguous, negative, gigantic, multiple depots per route
+              5.  Times: non-monotonic, duplicate, far-future, pre-epoch,
+                  timezone-aware vs naive, time windows that close before they
+                  open, windows spanning midnight
+              6.  Enormous payloads: 50k+ stops, many routes — latency/memory/DoS
+                  (the upload cap is 50 MB; probe just under it)
+              7.  Unicode / control chars / very long strings / injection-looking
+                  values in route_id, customer_id, address
+              8.  `config` JSON: unknown fields, wrong types, unknown traffic
+                  profile name, overlapping bands, bands wrapping midnight,
+                  speed_factor 0 / negative / 1e400, absurd work rules
+                  (max_shift_hours 0 or negative, lunch_after_hours > shift)
+              9.  Malformed transport: wrong content-type, truncated multipart,
+                  empty file, non-CSV bytes, deeply nested config JSON,
+                  missing required fields
+              10. Verifier evasion (`verify_slot`): prose whose numbers are
+                  invented but shaped to slip past extraction — comma grouping,
+                  identifiers containing digits, list markers, percentages,
+                  values near the tolerance boundary. A false PASS is a defect.
+              11. Storage keys: path-traversal-shaped keys ("../", absolute,
+                  empty) into read_object/append_object.
+            ${{ inputs.focus && format('EXTRA FOCUS: {0}.', inputs.focus) || '' }}
+
+            For each genuine defect (crash / unhandled 500, silent wrong answer,
+            hang, or clearly-invalid input accepted as valid), write a
+            REPRODUCING pytest test under `tests/adversary/`. Group by defect
+            class — one file per class, named test_<slug>.py, using the
+            conftest fixtures, with a module docstring stating the defect, its
+            impact, and the root cause. A FAILING test is the deliverable. Do
+            NOT write tests that pass trivially, and do NOT weaken or edit
+            existing tests.
+
+            Judgement: input correctly rejected with a 422 and a clear error is
+            CORRECT BEHAVIOUR, not a defect. A defect is an unhandled crash, a
+            500 where a 4xx belongs, a hang, a silently wrong number, or invalid
+            input accepted as valid. Error-path bugs count: if the input is
+            rejected but serializing the rejection crashes, that is a defect.
+
+            MANDATORY DELIVERABLE — you are NOT done until this file exists:
+            `reports/adversary/robustness-${{ github.run_number }}.md`. For ALL
+            11 categories it must record: the category, what you sent, and the
+            result — DEFECT (with expected-vs-actual) or CLEAN (input handled
+            correctly). List every category even when clean, so the next run
+            does not re-walk cleared ground. A run without this report is
+            incomplete.
+
+            Do not modify anything under `src/routebench/`.
+          claude_args: '--model sonnet --max-turns 60 --allowedTools "Read,Grep,Glob,Write,Bash"'
+
+      # --- GUARD: product code must be untouched (the core safety promise) ---
+      - name: Assert product code untouched
+        run: |
+          if [ -n "$(git status --porcelain -- src/routebench/)" ]; then
+            echo "::error ::Adversary changed product code under src/routebench/ — aborting. This harness must never edit the product."
+            git status --porcelain -- src/routebench/
+            git --no-pager diff -- src/routebench/ | head -200
+            exit 1
+          fi
+          echo "OK: src/routebench/ product code is untouched."
+
+      # --- RUN the adversary tests — failures ARE the findings ---
+      - name: Run adversary tests
+        id: probe_tests
+        run: |
+          set +e
+          mkdir -p tests/adversary reports/adversary
+          [ -f tests/adversary/__init__.py ] || touch tests/adversary/__init__.py
+          OUT="$(uv run pytest tests/adversary/ -q -p no:cacheprovider 2>&1)"
+          echo "$OUT"
+          DEFECTS="$(printf '%s' "$OUT" | grep -oE '[0-9]+ failed' | grep -oE '[0-9]+' | head -1)"
+          PASSED="$(printf '%s' "$OUT" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+' | head -1)"
+          echo "defects=${DEFECTS:-0}" >> "$GITHUB_OUTPUT"
+          echo "passed=${PASSED:-0}"  >> "$GITHUB_OUTPUT"
+          exit 0
+
+      # --- Open a PR with the findings (token auth re-asserted for the push) ---
+      - name: Open findings PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          git config user.name  "robustness-bot"
+          git config user.email "robustness-bot@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+          N="${{ github.run_number }}"
+          DEFECTS="${{ steps.probe_tests.outputs.defects }}"
+          BRANCH="robustness/run-$N"
+          git checkout -b "$BRANCH"
+          git add tests/adversary reports/adversary
+          if ! git commit -m "robustness run $N: $DEFECTS defect(s) found"; then
+            echo "No new findings to commit — the adversary reported nothing. Skipping PR."
+            exit 0
+          fi
+          git push -u origin "$BRANCH"
+          PR_URL="$(gh pr create --base "${{ github.ref_name }}" --head "$BRANCH" \
+            --title "Robustness run $N — $DEFECTS defect(s) found" \
+            --body "Automated adversarial robustness probe.
+
+          Each **failing** test under \`tests/adversary/\` documents a real defect the adversary reproduced. Read \`reports/adversary/robustness-$N.md\` for details, then decide what (if anything) to fix — this harness only reports, it never changes product code (guarded).
+
+          Adversary tests are excluded from the main CI run, so this PR does not turn CI red. When you fix a defect, promote its test into the main suite so it becomes a permanent regression guard (see \`ROBUSTNESS.md\`).
+
+          Defects found: **$DEFECTS**")"
+          echo "PR: $PR_URL"
+          gh pr comment "$PR_URL" --body "🔍 **Robustness run $N** reproduced **$DEFECTS** defect(s). See \`reports/adversary/robustness-$N.md\`."
