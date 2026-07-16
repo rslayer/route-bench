@@ -630,3 +630,92 @@ a {
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 .submit-blocked { color: var(--muted); font-size: 0.85rem; }
 .submit-cancel { color: var(--muted); font-size: 0.85rem; }
+
+/* Session progress ----------------------------------------------------- */
+
+.progress-bar { height: 0.5rem; background: var(--border); border-radius: 4px; overflow: hidden; max-width: 34rem; }
+.progress-bar span { display: block; height: 100%; background: var(--accent); transition: width 0.4s ease; }
+.progress-detail { color: var(--muted); font-size: 0.9rem; margin-top: 0.75rem; }
+
+/* Results -------------------------------------------------------------- */
+
+.results h1 { font-size: 2rem; }
+.headline-gap { max-width: 60ch; }
+.geometry-warning {
+  font-size: 0.85rem; color: var(--muted); border-left: 3px solid #DDCC77;
+  padding: 0.6rem 0.9rem; background: color-mix(in srgb, #DDCC77 8%, transparent);
+  border-radius: 0 var(--radius) var(--radius) 0; max-width: 72ch;
+}
+
+/* Map ------------------------------------------------------------------ */
+
+.map-shell { margin: 1.5rem 0 2.5rem; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.map-canvas { height: 32rem; width: 100%; }
+.map-loading { display: flex; align-items: center; justify-content: center; color: var(--muted); background: var(--border); }
+.map-toolbar {
+  display: flex; gap: 1rem; align-items: center; justify-content: space-between;
+  padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--border); flex-wrap: wrap;
+}
+.map-modes { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.map-modes button {
+  font: inherit; font-size: 0.85rem; padding: 0.3rem 0.8rem; border: none;
+  background: transparent; color: inherit; cursor: pointer;
+}
+.map-modes button.is-active { background: var(--accent); color: var(--accent-fg); }
+.map-modes button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.route-toggles { font-size: 0.85rem; position: relative; }
+.route-toggles > summary { cursor: pointer; color: var(--muted); }
+.route-toggles ul { list-style: none; margin: 0.5rem 0 0; padding: 0; max-height: 14rem; overflow-y: auto; }
+.route-toggles label { display: flex; align-items: center; gap: 0.4rem; padding: 0.15rem 0; }
+.route-toggle-actions { display: flex; gap: 0.75rem; margin-top: 0.4rem; }
+.route-swatch { width: 0.75rem; height: 0.75rem; border-radius: 2px; display: inline-block; }
+
+/* MapLibre popup content */
+.map-pop { font-size: 0.8rem; min-width: 11rem; }
+.map-pop-head { font-weight: 600; margin-bottom: 0.3rem; }
+.map-pop dl { display: grid; grid-template-columns: auto 1fr; gap: 0.1rem 0.6rem; margin: 0; }
+.map-pop dt { color: #666; }
+.map-pop dd { margin: 0; }
+.map-badge {
+  display: inline-block; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.03em;
+  background: #882255; color: #fff; padding: 0.05rem 0.35rem; border-radius: 3px; margin-bottom: 0.3rem;
+}
+
+/* Findings ------------------------------------------------------------- */
+
+.findings-head { display: flex; align-items: baseline; gap: 1rem; justify-content: space-between; flex-wrap: wrap; }
+.findings-count { color: var(--muted); font-weight: 400; }
+.btn-link { font: inherit; font-size: 0.85rem; background: none; border: none; padding: 0; color: var(--accent); cursor: pointer; text-decoration: underline; }
+.finding-list { list-style: none; padding: 0; margin: 1rem 0 0; display: grid; gap: 0.5rem; }
+.finding {
+  width: 100%; text-align: left; font: inherit; cursor: pointer;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: transparent; color: inherit; padding: 0.75rem 1rem;
+}
+.finding:hover { border-color: var(--accent); }
+.finding.is-selected { border-color: var(--accent); border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.finding-top { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem; flex-wrap: wrap; }
+.sev { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.04em; padding: 0.1rem 0.4rem; border-radius: 3px; }
+.finding-cat, .finding-routes { font-size: 0.75rem; color: var(--muted); }
+.finding-title { display: block; font-weight: 500; }
+.finding-body {
+  border: 1px solid var(--accent); border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius); padding: 0.75rem 1rem; font-size: 0.9rem;
+}
+.finding-body p { margin: 0 0 0.6rem; max-width: 70ch; }
+.finding-next { font-size: 0.85rem; }
+.evidence { display: grid; grid-template-columns: auto 1fr; gap: 0.1rem 0.75rem; font-size: 0.8rem; margin: 0 0 0.6rem; }
+.evidence dt { color: var(--muted); }
+.evidence dd { margin: 0; font-variant-numeric: tabular-nums; }
+.evidence-vs { color: var(--muted); }
+
+/* Downloads ------------------------------------------------------------ */
+
+.downloads { margin-top: 3rem; }
+.downloads .btn-primary, .downloads .btn-secondary { display: inline-block; text-decoration: none; margin-right: 0.75rem; }
+.btn-secondary {
+  font: inherit; font-weight: 600; padding: 0.7rem 1.4rem; cursor: pointer;
+  border: 1px solid var(--border); border-radius: var(--radius); background: transparent; color: inherit;
+}
+.downloads .dim-note { margin-top: 0.75rem; }
