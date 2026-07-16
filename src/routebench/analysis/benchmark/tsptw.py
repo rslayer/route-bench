@@ -6,11 +6,19 @@ from typing import NamedTuple
 
 import numpy as np
 import numpy.typing as npt
+import structlog
 from ortools.constraint_solver import pywrapcp, routing_enums_pb2  # type: ignore[import-untyped]
 
+from routebench.analysis.benchmark.windows import (
+    SECONDS_PER_DAY,
+    apply_time_windows,
+    route_start_seconds,
+)
 from routebench.core.config import WorkRules
 from routebench.core.schemas import Route
 from routebench.infra.matrix.base import MatrixResult
+
+logger: structlog.stdlib.BoundLogger = structlog.get_logger()
 
 SECONDS_PER_HOUR = 3600
 
@@ -101,13 +109,42 @@ def solve_tsptw(
     time_callback_index = routing.RegisterTransitCallback(time_callback)
 
     max_shift_seconds = int(work_rules.max_shift_hours * SECONDS_PER_HOUR)
+    start_seconds = route_start_seconds(route)
+    # The dimension carries wall-clock seconds since midnight, not elapsed time,
+    # so a "09:00" window can be compared against it directly. That means the
+    # horizon must span the day rather than the shift, and the start cumul
+    # cannot be forced to zero — apply_time_windows pins it to the planned
+    # departure instead.
+    horizon_end = min(SECONDS_PER_DAY, start_seconds + max_shift_seconds)
     routing.AddDimension(
         time_callback_index,
-        max_shift_seconds,  # slack
-        max_shift_seconds,  # max cumul
-        True,  # start cumul to zero
+        max_shift_seconds,  # slack: waiting for a window to open
+        SECONDS_PER_DAY,  # max cumul: the wall clock, not the shift
+        False,  # start cumul is the departure time, not zero
         "Time",
     )
+
+    if work_rules.enforce_time_windows:
+        applied = apply_time_windows(
+            routing,
+            manager,
+            "Time",
+            stops_by_node={i + 1: stop for i, stop in enumerate(route.stops)},
+            start_seconds_by_vehicle={0: start_seconds},
+            horizon_end=horizon_end,
+        )
+        if applied:
+            logger.debug(
+                "tsptw_time_windows_applied",
+                route_id=route.route_id,
+                n_windows=applied,
+            )
+    else:
+        # Windows off: still pin the start so the shift cap is measured from the
+        # real departure rather than from midnight.
+        time_dim = routing.GetDimensionOrDie("Time")
+        time_dim.CumulVar(routing.Start(0)).SetRange(start_seconds, start_seconds)
+        time_dim.CumulVar(routing.End(0)).SetRange(start_seconds, horizon_end)
 
     # Warm-start: actual sequence as initial hint
     initial_routes = [[manager.NodeToIndex(i) for i in range(1, n_nodes)]]
