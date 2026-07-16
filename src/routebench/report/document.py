@@ -39,11 +39,18 @@ class ReportDocument:
         """Identify which prose slots need to be filled."""
         return identify_prose_slots(self._analysis)
 
-    def render(self, prose: dict[str, str]) -> str:
+    def render(
+        self,
+        prose: dict[str, str],
+        verification: dict[str, Any] | None = None,
+    ) -> str:
         """Render the full report as a self-contained HTML string.
 
         Args:
             prose: Dict mapping slot_id to generated prose text.
+            verification: Optional slot_id -> VerificationResult. Drives the
+                footer, which reports each status separately so a deterministic
+                fallback is never presented as a verified claim.
 
         Returns:
             Complete HTML document as a string.
@@ -93,9 +100,25 @@ class ReportDocument:
             analyses_run=self._analysis.analyses_run,
             analyses_skipped=self._analysis.analyses_skipped,
             metadata=self._analysis.metadata,
+            verification=self._verification_summary(verification),
             css=css,
         )
         return html
+
+    def _verification_summary(
+        self,
+        verification: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        """Shape verification results for the footer template."""
+        if not verification:
+            return None
+        counts: dict[str, int] = {"verified": 0, "regenerated": 0, "fallback": 0}
+        slots: list[dict[str, str]] = []
+        for slot_id, result in sorted(verification.items()):
+            status = getattr(result, "status", "verified")
+            counts[status] = counts.get(status, 0) + 1
+            slots.append({"slot_id": slot_id, "status": status})
+        return {"counts": counts, "slots": slots, "total": len(slots)}
 
     def _build_finding_maps(
         self,

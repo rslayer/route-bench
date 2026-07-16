@@ -136,11 +136,11 @@ async def replay_session(
     # Run LLM calls in a thread to avoid blocking the event loop
     prose = await asyncio.to_thread(writer.fill_slots, slots)
     verifier = Verifier(client=client)
-    verified_prose, _results = await asyncio.to_thread(
+    verified_prose, verification = await asyncio.to_thread(
         verifier.verify_and_regenerate, prose, slots, _writer_fn
     )
 
-    html = doc.render(verified_prose)
+    html = doc.render(verified_prose, verification=verification)
     await storage.write(session_id, "report.html", html.encode())
 
     logger.info("session_replayed", session_id=session_id)

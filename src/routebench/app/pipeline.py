@@ -16,7 +16,7 @@ import structlog
 
 from routebench.agent.client import LLMClient
 from routebench.agent.orchestrator import AnalysisOrchestrator
-from routebench.agent.verifier import Verifier
+from routebench.agent.verifier import Verifier, summarize_statuses
 from routebench.agent.writer import ReportWriter
 from routebench.app.sessions import (
     CostSummary,
@@ -152,15 +152,22 @@ async def run_session(
         def _writer_fn(s: ProseSlot) -> str:
             return writer.fill_slots([s]).get(s.slot_id, "")
 
-        verified_result = await asyncio.to_thread(
+        verified_prose, verification = await asyncio.to_thread(
             verifier.verify_and_regenerate, prose, slots, _writer_fn
         )
-        verified_prose = verified_result[0]
-        await _emit("writing", 75, "Prose verified")
+        status_counts = summarize_statuses(verification)
+        logger.info("prose_verified", session_id=session_id, **status_counts)
+        await _emit(
+            "writing",
+            75,
+            f"Prose verified: {status_counts['verified']} verified, "
+            f"{status_counts['regenerated']} regenerated, "
+            f"{status_counts['fallback']} deterministic fallback",
+        )
 
         # Stage 5: Render HTML
         await _emit("rendering", 80, "Rendering HTML report")
-        html = doc.render(verified_prose)
+        html = doc.render(verified_prose, verification=verification)
         await _emit("rendering", 85, "HTML report rendered")
 
         # Stage 5b: Render PDF if configured

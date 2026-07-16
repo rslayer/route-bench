@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from typing import Any, Literal
 
 import structlog
 
@@ -18,25 +18,51 @@ from routebench.report.prose_slots import ProseSlot
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger()
 
-_NUMBER_RE = re.compile(r"\b(\d+(?:\.\d+)?)\b")
+# Comma-grouped numbers are matched first so "1,234" is one token worth 1234,
+# never the pair (1, 234) — which would let a wrong claim verify against two
+# unrelated source values.
+_COMMA_GROUPED = r"\d{1,3}(?:,\d{3})+(?:\.\d+)?"
+_PLAIN = r"\d+(?:\.\d+)?"
+_NUMBER_RE = re.compile(rf"\b(?:{_COMMA_GROUPED}|{_PLAIN})\b")
 _ROUTE_ID_RE = re.compile(r"\b(R[-_]\w+)\b")
 _FINDING_ID_RE = re.compile(r"\b([0-9a-f]{8,16})\b")
 
-_ROUNDING_TOLERANCE = 0.5
+# An ordered-list marker ("1." / "2)") at the start of a line is formatting,
+# not a claim about the fleet.
+_LIST_MARKER_RE = re.compile(r"(?:^|\n)[ \t]*(\d+)[.)](?=\s)")
+
+# A claim verifies within 5% of the source, with an absolute floor so that
+# small sources (and zero) stay checkable. Prose rounding survives this;
+# a genuinely different number does not.
+_RELATIVE_TOLERANCE = 0.05
+_ABSOLUTE_FLOOR = 0.05
+
+# Values that stay exempt from checking, and only as bare list markers.
+_LIST_MARKER_EXEMPT = frozenset({0.0, 1.0})
+
+SlotStatus = Literal["verified", "regenerated", "fallback"]
 
 
 class VerificationResult:
-    """Result of verifying a single prose slot."""
+    """Result of verifying a single prose slot.
+
+    `status` records how the final prose was produced. `passed` is retained for
+    backward compatibility and means "checked and clean" — a deterministic
+    fallback is safe to publish but is not a verified LLM claim, so it reports
+    passed=False with status="fallback" rather than passing silently.
+    """
 
     def __init__(
         self,
         slot_id: str,
         passed: bool,
         issues: list[str] | None = None,
+        status: SlotStatus = "verified",
     ) -> None:
         self.slot_id = slot_id
         self.passed = passed
         self.issues = issues or []
+        self.status = status
 
 
 def _extract_numbers_from_data(data: dict[str, Any]) -> set[float]:
@@ -55,6 +81,63 @@ def _extract_numbers_from_data(data: dict[str, Any]) -> set[float]:
 
     _walk(data)
     return numbers
+
+
+def _extract_collection_counts(data: dict[str, Any]) -> set[float]:
+    """Collect the length of every list in the source data.
+
+    Prose legitimately counts referenced collections — "3 of the 12 routes"
+    where the finding references 12 route_ids. The 12 appears nowhere as a
+    value, only as a length, so without this the claim would be flagged.
+    Deliberately limited to collection sizes; no general arithmetic.
+    """
+    counts: set[float] = set()
+
+    def _walk(obj: object) -> None:
+        if isinstance(obj, dict):
+            for v in obj.values():
+                _walk(v)
+        elif isinstance(obj, list):
+            counts.add(float(len(obj)))
+            for item in obj:
+                _walk(item)
+
+    _walk(data)
+    return counts
+
+
+def _list_marker_spans(prose: str) -> list[tuple[int, int]]:
+    """Character spans of ordered-list markers, which are formatting not claims."""
+    return [m.span(1) for m in _LIST_MARKER_RE.finditer(prose)]
+
+
+def _mask_identifiers(prose: str, slot: ProseSlot) -> str:
+    """Blank out identifiers so their digits are not read as numeric claims.
+
+    "R-001" contains a word-boundary "001", which would otherwise be checked as
+    the number 1 and flagged on every route mention. Identifiers are verified
+    separately (route IDs against the source, finding IDs as required
+    references), so their digits carry no quantitative claim.
+
+    Each identifier is replaced by spaces of equal length, keeping every offset
+    stable so list-marker spans still line up.
+    """
+
+    def _blank(match: re.Match[str]) -> str:
+        return " " * len(match.group())
+
+    masked = _ROUTE_ID_RE.sub(_blank, prose)
+
+    known_ids = set(slot.required_references) | _extract_finding_ids_from_data(slot.input_data)
+    for identifier in known_ids:
+        if identifier:
+            masked = masked.replace(identifier, " " * len(identifier))
+    return masked
+
+
+def _within_tolerance(claim: float, source: float) -> bool:
+    """True when `claim` is within 5% of `source` (with an absolute floor)."""
+    return abs(claim - source) <= max(_RELATIVE_TOLERANCE * abs(source), _ABSOLUTE_FLOOR)
 
 
 def _extract_route_ids_from_data(data: dict[str, Any]) -> set[str]:
@@ -103,26 +186,38 @@ def verify_slot(
     """Verify a prose slot against its source data.
 
     Checks:
-    1. Numeric tokens in prose appear in source data (±tolerance).
+    1. Numeric tokens in prose appear in source data (within relative tolerance),
+       or equal the size of a referenced collection.
     2. Route IDs in prose appear in source data.
     3. Required finding references are mentioned.
+
+    Only 0 and 1 are ever skipped, and only as ordered-list markers. 100 is
+    checked like any other value: percentages near 100 are exactly the claims
+    worth checking. A false flag is cheap — the slot regenerates once and then
+    falls back deterministically — while a false pass ships an invented number.
     """
     issues: list[str] = []
 
     # Extract data values
     source_numbers = _extract_numbers_from_data(slot.input_data)
     source_route_ids = _extract_route_ids_from_data(slot.input_data)
-    # Check numbers in prose
-    prose_numbers = _NUMBER_RE.findall(prose)
-    for num_str in prose_numbers:
-        num = float(num_str)
-        # Skip common values like years, percentages that are computed
-        if num == 0 or num == 1 or num == 100:
+    collection_counts = _extract_collection_counts(slot.input_data)
+
+    # Check numbers in prose, ignoring digits that belong to identifiers
+    masked = _mask_identifiers(prose, slot)
+    marker_spans = _list_marker_spans(masked)
+    for match in _NUMBER_RE.finditer(masked):
+        raw = match.group()
+        num = float(raw.replace(",", ""))
+
+        if num in _LIST_MARKER_EXEMPT and match.span() in marker_spans:
             continue
-        # Check if any source number is within tolerance
-        matched = any(abs(num - src) <= _ROUNDING_TOLERANCE for src in source_numbers)
+
+        matched = any(_within_tolerance(num, src) for src in source_numbers)
+        if not matched and num.is_integer():
+            matched = num in collection_counts
         if not matched:
-            issues.append(f"Number {num_str} not found in source data")
+            issues.append(f"Number {raw} not found in source data")
 
     # Check route IDs in prose
     prose_route_ids = set(_ROUTE_ID_RE.findall(prose))
@@ -141,6 +236,18 @@ def verify_slot(
         passed=passed,
         issues=issues,
     )
+
+
+def summarize_statuses(results: dict[str, VerificationResult]) -> dict[str, int]:
+    """Count slots by status, for the report footer.
+
+    Every status is reported separately so a deterministic fallback is never
+    folded into the verified count.
+    """
+    counts: dict[str, int] = {"verified": 0, "regenerated": 0, "fallback": 0}
+    for result in results.values():
+        counts[result.status] = counts.get(result.status, 0) + 1
+    return counts
 
 
 class Verifier:
@@ -218,15 +325,19 @@ class Verifier:
 
                 if retry_result.passed:
                     final_prose[slot_id] = new_prose
+                    retry_result.status = "regenerated"
                     results[slot_id] = retry_result
                 else:
-                    # Fall back to deterministic template
+                    # Fall back to deterministic template. The prose is safe to
+                    # publish, but it is not a verified LLM claim — passed=False
+                    # keeps it out of the verified count.
                     fallback = self._deterministic_fallback(slot)
                     final_prose[slot_id] = fallback
                     results[slot_id] = VerificationResult(
                         slot_id=slot_id,
-                        passed=True,
-                        issues=["Used deterministic fallback"],
+                        passed=False,
+                        issues=["Used deterministic fallback", *retry_result.issues],
+                        status="fallback",
                     )
             except Exception:
                 logger.exception("regeneration_error", slot_id=slot_id)
@@ -234,8 +345,9 @@ class Verifier:
                 final_prose[slot_id] = fallback
                 results[slot_id] = VerificationResult(
                     slot_id=slot_id,
-                    passed=True,
+                    passed=False,
                     issues=["Used deterministic fallback after error"],
+                    status="fallback",
                 )
 
         return final_prose, results

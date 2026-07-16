@@ -11,10 +11,18 @@ import structlog
 logger: structlog.stdlib.BoundLogger = structlog.get_logger()
 
 
+# Non-session objects live under a reserved directory inside the configured
+# base, rather than a sibling of it: writing outside the operator's configured
+# storage path would be a surprise. Session IDs are uuid4 hex and can never
+# start with "_", so the namespaces cannot collide.
+_OBJECTS_DIR = "_objects"
+
+
 class LocalStorageBackend:
     """Stores session artifacts on the local filesystem.
 
-    Layout: {base_path}/sessions/{session_id}/{filename}
+    Layout: {base_path}/{session_id}/{filename}
+    Non-session objects: {base_path}/_objects/{key}
     All filesystem I/O is offloaded to a thread via asyncio.to_thread().
     """
 
@@ -24,6 +32,9 @@ class LocalStorageBackend:
 
     def _session_dir(self, session_id: str) -> Path:
         return self._base / session_id
+
+    def _object_path(self, key: str) -> Path:
+        return self._base / _OBJECTS_DIR / key
 
     async def write(self, session_id: str, filename: str, data: bytes) -> None:
         def _write() -> None:
@@ -62,9 +73,32 @@ class LocalStorageBackend:
         def _list() -> list[str]:
             if not self._base.exists():
                 return []
-            return [p.name for p in self._base.iterdir() if p.is_dir()]
+            return [
+                p.name for p in self._base.iterdir() if p.is_dir() and not p.name.startswith("_")
+            ]
 
         return await asyncio.to_thread(_list)
+
+    async def read_object(self, key: str) -> bytes:
+        def _read() -> bytes:
+            p = self._object_path(key)
+            if not p.exists():
+                msg = f"Object not found: {key}"
+                raise FileNotFoundError(msg)
+            return p.read_bytes()
+
+        return await asyncio.to_thread(_read)
+
+    async def append_object(self, key: str, data: bytes) -> None:
+        """Append to an object. The local filesystem appends natively."""
+
+        def _append() -> None:
+            p = self._object_path(key)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            with p.open("ab") as f:
+                f.write(data)
+
+        await asyncio.to_thread(_append)
 
     async def is_writable(self) -> bool:
         def _check() -> bool:

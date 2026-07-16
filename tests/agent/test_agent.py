@@ -475,6 +475,8 @@ class TestVerifier:
             bad_writer,
         )
 
-        # Should have used deterministic fallback
+        # Should have used deterministic fallback. The prose is safe to publish,
+        # but it is not a verified LLM claim — it must not report passed=True.
         assert "test_slot" in final_prose
-        assert results["test_slot"].passed
+        assert results["test_slot"].status == "fallback"
+        assert not results["test_slot"].passed

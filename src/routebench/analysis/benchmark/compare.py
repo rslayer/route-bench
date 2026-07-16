@@ -32,6 +32,9 @@ def compute_route_benchmark(
     optimal_dist = optimal.total_distance_meters
     optimal_time = optimal.total_time_seconds
 
+    # Not clamped at zero: a negative gap means the solver found nothing better
+    # than the plan. That is a legitimate, reportable outcome — clamping it would
+    # silently render a good plan as merely "0% wasteful".
     dist_gap = (actual_dist - optimal_dist) / actual_dist * 100 if actual_dist > 0 else 0.0
     time_gap = (actual_time - optimal_time) / actual_time * 100 if actual_time > 0 else 0.0
 
@@ -39,11 +42,12 @@ def compute_route_benchmark(
         route_id=route.route_id,
         actual_distance_miles=actual_dist / METERS_PER_MILE,
         optimal_distance_miles=optimal_dist / METERS_PER_MILE,
-        distance_gap_pct=max(0.0, dist_gap),
+        distance_gap_pct=dist_gap,
         actual_time_hours=actual_time / SECONDS_PER_HOUR,
         optimal_time_hours=optimal_time / SECONDS_PER_HOUR,
-        time_gap_pct=max(0.0, time_gap),
-        optimality_gap_reported_by_solver=optimal.optimality_gap,
+        time_gap_pct=time_gap,
+        # Solvers report a fraction; this field is a percentage, like its siblings.
+        improvement_gap_pct=optimal.optimality_gap * 100.0,
     )
 
 
@@ -109,5 +113,6 @@ def compute_fleet_benchmark(
         actual_total_distance=actual_total_miles,
         optimal_total_distance=solution.total_distance_meters / METERS_PER_MILE,
         stop_migrations=migrations,
-        optimality_gap_reported_by_solver=solution.optimality_gap,
+        # Solvers report a fraction; this field is a percentage, like its siblings.
+        improvement_gap_pct=solution.optimality_gap * 100.0,
     )

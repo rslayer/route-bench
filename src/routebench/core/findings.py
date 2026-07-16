@@ -132,7 +132,12 @@ class StopMigration(BaseModel):
 
 
 class RouteBenchmark(BaseModel):
-    """Per-route benchmark comparison: actual vs optimal."""
+    """Per-route benchmark comparison: plan vs the best solution the solver found.
+
+    Gap fields are percentages (0-100) and may be negative: a negative gap means
+    the solver found nothing better than the plan, which is a real result, not an
+    error. See `improvement_gap_pct`.
+    """
 
     route_id: str
     actual_distance_miles: float
@@ -141,16 +146,22 @@ class RouteBenchmark(BaseModel):
     actual_time_hours: float
     optimal_time_hours: float
     time_gap_pct: float
-    optimality_gap_reported_by_solver: float
+    # (actual - solver_solution) / actual, as a percentage. This is how much the
+    # solver improved on the plan — NOT a proven distance from the true optimum.
+    # The solver is a time-limited metaheuristic, so the real waste is at least
+    # this figure.
+    improvement_gap_pct: float
 
 
 class FleetBenchmark(BaseModel):
-    """Fleet-level benchmark comparison."""
+    """Fleet-level benchmark comparison: plan vs the best solution the solver found."""
 
     actual_total_distance: float
     optimal_total_distance: float
     stop_migrations: list[StopMigration]
-    optimality_gap_reported_by_solver: float
+    # See RouteBenchmark.improvement_gap_pct — improvement over the plan, as a
+    # percentage, not a proven optimality bound. May be negative.
+    improvement_gap_pct: float
 
 
 class BenchmarkResult(BaseModel):

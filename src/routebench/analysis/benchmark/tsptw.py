@@ -158,10 +158,11 @@ def solve_tsptw(
     total_time = float(solution.ObjectiveValue())
 
     # Compute optimality gap
+    # Unclamped: negative means the solver found nothing better than the plan.
     actual_dist = _actual_distance(dist_matrix, n_stops)
     gap = 0.0
-    if total_dist > 0:
-        gap = max(0.0, (actual_dist - total_dist) / actual_dist)
+    if total_dist > 0 and actual_dist > 0:
+        gap = (actual_dist - total_dist) / actual_dist
 
     return OptimalSequence(
         stop_order=stop_order,

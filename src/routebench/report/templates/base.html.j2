@@ -124,5 +124,38 @@
       additional operational constraints beyond those specified in the input data.</p>
     </div>
   </div>
+
+  {# Prose verification footer #}
+  {% if verification %}
+  <div class="section" id="verification">
+    <h2>Prose Verification</h2>
+    <div class="methodology">
+      <p>Every narrative claim in this report is checked against the structured findings it
+      came from. Of {{ verification.total }} prose section{{ '' if verification.total == 1 else 's' }}:
+      <strong>{{ verification.counts.verified }} verified</strong>{% if verification.counts.regenerated %},
+      <strong>{{ verification.counts.regenerated }} regenerated</strong> after a failed first
+      check{% endif %}{% if verification.counts.fallback %},
+      <strong>{{ verification.counts.fallback }} deterministic fallback</strong>{% endif %}.</p>
+
+      {% if verification.counts.fallback %}
+      <p>A <em>deterministic fallback</em> means generated prose failed verification twice, so
+      the section was replaced with text built directly from the structured data. It is
+      accurate, but it was not written by the model and reads plainly.</p>
+      {% endif %}
+
+      <table class="metrics-table">
+        <thead><tr><th>Section</th><th>Status</th></tr></thead>
+        <tbody>
+          {% for slot in verification.slots %}
+          <tr>
+            <td>{{ slot.slot_id }}</td>
+            <td>{{ slot.status }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
 </body>
 </html>

@@ -134,3 +134,31 @@ class S3StorageBackend:
         except Exception:
             logger.exception("s3_write_check_failed")
             return False
+
+    async def read_object(self, key: str) -> bytes:
+        """Read a non-session object. Keys live at the bucket root, beside sessions/."""
+        async with self._session.client(**self._boto_config()) as s3:
+            try:
+                resp = await s3.get_object(Bucket=self._bucket, Key=key)
+                body = await resp["Body"].read()
+                return bytes(body)
+            except Exception as exc:
+                if "NoSuchKey" in str(exc) or "404" in str(exc):
+                    msg = f"Object not found: {key}"
+                    raise FileNotFoundError(msg) from exc
+                raise
+
+    async def append_object(self, key: str, data: bytes) -> None:
+        """Append via read-modify-write — S3 has no native append.
+
+        Safe only because callers serialize appends to a key and a deployment
+        runs one worker per bucket path. Concurrent writers would lose updates;
+        multi-machine coordination is explicitly out of scope.
+        """
+        try:
+            existing = await self.read_object(key)
+        except FileNotFoundError:
+            existing = b""
+
+        async with self._session.client(**self._boto_config()) as s3:
+            await s3.put_object(Bucket=self._bucket, Key=key, Body=existing + data)

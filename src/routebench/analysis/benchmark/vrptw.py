@@ -150,10 +150,11 @@ def solve_vrptw(
 
         vehicle_routes.append(VehicleRoute(vehicle_id=v, stop_indices=stop_indices))
 
+    # Unclamped: negative means the solver found nothing better than the plan.
     actual_dist = _actual_fleet_distance(fleet, dist_matrix)
     gap = 0.0
-    if total_dist > 0:
-        gap = max(0.0, (actual_dist - total_dist) / actual_dist)
+    if total_dist > 0 and actual_dist > 0:
+        gap = (actual_dist - total_dist) / actual_dist
 
     return FleetSolution(
         vehicle_routes=vehicle_routes,
