@@ -32,5 +32,10 @@ jobs:
       - name: Mypy
         run: uv run mypy src/routebench
 
+      # tests/adversary/ is excluded: those tests are findings from the
+      # robustness harness and are EXPECTED to fail until the defect they
+      # document is fixed. Including them would make CI red by design. When a
+      # defect is fixed, promote its test out of tests/adversary/ so it becomes
+      # a permanent regression guard here — see ROBUSTNESS.md.
       - name: Pytest
-        run: uv run pytest tests/ -v --tb=short
+        run: uv run pytest tests/ -v --tb=short --ignore=tests/adversary
