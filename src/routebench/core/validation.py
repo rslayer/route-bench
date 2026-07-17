@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime, time
 from pathlib import Path
 
@@ -117,7 +118,7 @@ def validate_csv(
         )
 
     # Reject a fractional stop_sequence before casting. `cast(pl.Int64)` on a
-    # float column truncates silently rather than raising, so "0.9" became 0 —
+    # float column truncates silently rather than raising, so "0.9" became 0 -
     # and 0 is what marks the depot. A typo'd sequence quietly promoted a
     # delivery to the depot and reordered the route, with no error anywhere.
     if df["stop_sequence"].dtype in (pl.Float32, pl.Float64):
@@ -209,7 +210,7 @@ def validate_csv(
         #
         # `not (-90 <= lat <= 90)` rather than `lat < -90 or lat > 90`: NaN
         # compares False against EVERY bound, so the second form lets NaN
-        # through as if it were in range. That is not theoretical — a NaN on a
+        # through as if it were in range. That is not theoretical - a NaN on a
         # depot row was accepted silently (is_valid=True) and carried into
         # routing, distance maths, and the geojson export. Inverting the
         # in-range test makes NaN fail, since "is it inside?" is False for NaN.
@@ -432,6 +433,41 @@ def validate_csv(
 
         for i in range(stop_rows.height):
             srow = stop_rows.row(i, named=True)
+
+            # Parse the temporal fields up front, surfacing any garbage as a
+            # warning. A malformed time used to be swallowed to None, silently
+            # indistinguishable from an absent column - a corrupted export was
+            # treated as "no time provided" with no trace in the report.
+            row_label = f"Route '{route_id}', stop {srow['stop_sequence']}"
+            planned_arrival = _parse_temporal_checked(
+                srow.get("planned_arrival_time"),
+                _parse_datetime,
+                "planned_arrival_time",
+                row_label,
+                warnings,
+            )
+            tw_start = _parse_temporal_checked(
+                srow.get("time_window_start"), _parse_time, "time_window_start", row_label, warnings
+            )
+            tw_end = _parse_temporal_checked(
+                srow.get("time_window_end"), _parse_time, "time_window_end", row_label, warnings
+            )
+            # A window that closes before it opens can never be satisfied. The
+            # scoring and benchmark paths both now treat it as no constraint;
+            # warn here so the contradiction is visible rather than silent.
+            if tw_start is not None and tw_end is not None and tw_start >= tw_end:
+                warnings.append(
+                    ValidationWarning(
+                        row=None,
+                        column="time_window_end",
+                        code="CONTRADICTORY_TIME_WINDOW",
+                        message=(
+                            f"{row_label}: time window closes ({tw_end}) before it opens "
+                            f"({tw_start}); treated as no constraint"
+                        ),
+                    )
+                )
+
             # Stop's own field constraints (service_time_minutes >= 0, and the
             # rest) raise pydantic's ValidationError, which is a different class
             # from this module's ValidationError and so was never caught here.
@@ -445,10 +481,10 @@ def validate_csv(
                     latitude=float(srow["latitude"]),
                     longitude=float(srow["longitude"]),
                     stop_type=srow.get("stop_type", "delivery") or "delivery",
-                    planned_arrival_time=_parse_datetime(srow.get("planned_arrival_time")),
+                    planned_arrival_time=planned_arrival,
                     service_time_minutes=float(srow.get("service_time_minutes", 5.0) or 5.0),
-                    time_window_start=_parse_time(srow.get("time_window_start")),
-                    time_window_end=_parse_time(srow.get("time_window_end")),
+                    time_window_start=tw_start,
+                    time_window_end=tw_end,
                     demand_units=_safe_float(srow.get("demand_units")),
                     demand_weight=_safe_float(srow.get("demand_weight")),
                     demand_volume=_safe_float(srow.get("demand_volume")),
@@ -517,7 +553,7 @@ def validate_csv(
 
     # Any error accumulated while building rows (a stop that failed its own
     # field constraints, say) means we do not have the fleet the caller
-    # uploaded — some stops were skipped. Returning it anyway with
+    # uploaded - some stops were skipped. Returning it anyway with
     # is_valid=True, as this did, would analyse a quietly truncated route and
     # report the result as if it were the whole thing.
     if errors:
@@ -563,7 +599,7 @@ def _check_bounding_box(
 ) -> None:
     """Flag if a route's stops span more than 500 miles corner to corner.
 
-    Measures the route's bounding box — the name's promise — in a single pass.
+    Measures the route's bounding box - the name's promise - in a single pass.
     The previous implementation compared every pair of stops, which is O(n^2)
     and runs synchronously inside POST /sessions: a single well-formed route
     with a few thousand clustered stops, comfortably inside the 5,000-stop
@@ -651,3 +687,33 @@ def _parse_time(val: object) -> time | None:
         except ValueError:
             return None
     return None
+
+
+def _parse_temporal_checked[T](
+    raw: object,
+    parser: Callable[[object], T | None],
+    column: str,
+    row_label: str,
+    warnings: list[ValidationWarning],
+) -> T | None:
+    """Parse a temporal field, surfacing garbage rather than dropping it.
+
+    A blank cell legitimately means "unset" and applies no value. A cell that
+    has content but does not parse is a corrupted value the caller should hear
+    about: every other malformed field in validate_csv raises INVALID_TYPE or
+    OUT_OF_RANGE, but times quietly returned None - indistinguishable from an
+    absent column, so a broken date export was silently treated as "no time".
+    The parse failure is a warning, not an error: the row is still usable with
+    the field unset, but the caller is told their value was ignored.
+    """
+    parsed = parser(raw)
+    if parsed is None and isinstance(raw, str) and raw.strip():
+        warnings.append(
+            ValidationWarning(
+                row=None,
+                column=column,
+                code="UNPARSEABLE_TIME",
+                message=f"{row_label}: could not parse {column} value {raw!r}; treated as unset",
+            )
+        )
+    return parsed
