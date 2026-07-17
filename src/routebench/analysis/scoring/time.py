@@ -94,21 +94,42 @@ def compute_time_metrics(
         current_time += travel_seconds
         elapsed_shift_seconds += travel_seconds
 
+        # A window that closes before it opens can never be satisfied. The
+        # benchmark path (analysis.benchmark.windows.stop_window) treats such a
+        # window as no constraint at all, widening it to the full horizon. This
+        # scoring path had no such guard: it read window_start as a plain "wait
+        # until" instruction, so a contradictory window (start=17:00, end=08:00)
+        # made the vehicle idle ~9 hours toward an impossible open time and then
+        # get flagged for missing the close it idled past - inflating idle time
+        # and shift time by that same gap, with nothing marking the input bad.
+        # Match the benchmark: an incoherent window constrains nothing.
+        window_start_sec = (
+            _time_to_seconds_since_midnight(stop.time_window_start)
+            if stop.time_window_start is not None
+            else None
+        )
+        window_end_sec = (
+            _time_to_seconds_since_midnight(stop.time_window_end)
+            if stop.time_window_end is not None
+            else None
+        )
+        window_coherent = not (
+            window_start_sec is not None
+            and window_end_sec is not None
+            and window_start_sec >= window_end_sec
+        )
+
         # Time window idle: if we arrive before window_start, wait
-        if stop.time_window_start is not None:
-            window_start_sec = _time_to_seconds_since_midnight(stop.time_window_start)
-            if current_time < window_start_sec:
-                wait = window_start_sec - current_time
-                tw_idle_seconds += wait
-                idle_time_seconds += wait
-                current_time = window_start_sec
-                elapsed_shift_seconds += wait
+        if window_coherent and window_start_sec is not None and current_time < window_start_sec:
+            wait = window_start_sec - current_time
+            tw_idle_seconds += wait
+            idle_time_seconds += wait
+            current_time = window_start_sec
+            elapsed_shift_seconds += wait
 
         # Time window violation: if we arrive after window_end
-        if stop.time_window_end is not None:
-            window_end_sec = _time_to_seconds_since_midnight(stop.time_window_end)
-            if current_time > window_end_sec:
-                time_window_violations += 1
+        if window_coherent and window_end_sec is not None and current_time > window_end_sec:
+            time_window_violations += 1
 
         # Insert lunch if threshold reached and not yet taken
         if not lunch_taken and elapsed_shift_seconds >= lunch_threshold_seconds:
