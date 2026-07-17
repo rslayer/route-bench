@@ -8,6 +8,11 @@ import numpy as np
 import numpy.typing as npt
 from ortools.constraint_solver import pywrapcp, routing_enums_pb2  # type: ignore[import-untyped]
 
+from routebench.analysis.benchmark.windows import (
+    SECONDS_PER_DAY,
+    apply_time_windows,
+    route_start_seconds,
+)
 from routebench.core.config import WorkRules
 from routebench.core.schemas import Fleet, Stop
 from routebench.infra.matrix.base import MatrixResult
@@ -104,16 +109,41 @@ def solve_vrptw(
     time_callback_index = routing.RegisterTransitCallback(time_callback)
 
     max_shift_seconds = int(work_rules.max_shift_hours * SECONDS_PER_HOUR)
+    # Wall-clock seconds since midnight, not elapsed time, so a "09:00" window
+    # compares directly against the dimension. Unlike the single-route solver,
+    # each vehicle here has its own departure, so each start cumul is pinned
+    # separately below.
     routing.AddDimension(
         time_callback_index,
-        max_shift_seconds,  # slack
-        max_shift_seconds,  # max cumul
-        True,
+        max_shift_seconds,  # slack: waiting for a window to open
+        SECONDS_PER_DAY,  # max cumul: the wall clock, not the shift
+        False,  # start cumul is the vehicle's departure, not zero
         "Time",
     )
 
+    start_by_vehicle = {v: route_start_seconds(r) for v, r in enumerate(fleet.routes)}
+    earliest_start = min(start_by_vehicle.values(), default=0)
+    horizon_end = min(SECONDS_PER_DAY, earliest_start + max_shift_seconds)
+
+    if work_rules.enforce_time_windows:
+        apply_time_windows(
+            routing,
+            manager,
+            "Time",
+            stops_by_node={i + 1: stop for i, stop in enumerate(all_stops)},
+            start_seconds_by_vehicle=start_by_vehicle,
+            horizon_end=horizon_end,
+        )
+    else:
+        time_dim = routing.GetDimensionOrDie("Time")
+        for vehicle, start in start_by_vehicle.items():
+            time_dim.CumulVar(routing.Start(vehicle)).SetRange(start, start)
+            routing.AddVariableMinimizedByFinalizer(time_dim.CumulVar(routing.Start(vehicle)))
+            routing.AddVariableMinimizedByFinalizer(time_dim.CumulVar(routing.End(vehicle)))
+
     # Capacity constraints for dimensions that are present
-    _add_capacity_constraints(routing, manager, fleet, all_stops, n_stops)
+    if work_rules.enforce_capacity:
+        _add_capacity_constraints(routing, manager, fleet, all_stops, n_stops)
 
     # Search parameters
     search_params = pywrapcp.DefaultRoutingSearchParameters()

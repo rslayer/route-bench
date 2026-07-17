@@ -31,6 +31,11 @@ class WorkRules(BaseModel):
     lunch_minutes: float = 30.0
     lunch_after_hours: float = 6.0
     enforce_time_windows: bool = True
+    # Capacity was previously decided purely by whether the upload carried
+    # capacity columns, so there was no way to ask "how would this plan look
+    # without the capacity constraint?" — and the constraints panel had nothing
+    # to bind a checkbox to. Still a no-op when the data has no capacity.
+    enforce_capacity: bool = True
 
 
 class ServiceTimeModel(BaseModel):

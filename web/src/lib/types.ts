@@ -408,7 +408,9 @@ export interface WorkRules {
   post_trip_minutes: number;
   lunch_minutes: number;
   lunch_after_hours: number;
+  /** The solvers genuinely honour this now — it is not a display-only flag. */
   enforce_time_windows: boolean;
+  enforce_capacity: boolean;
 }
 
 export interface ServiceTimeModel {

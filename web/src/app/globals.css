@@ -7,20 +7,53 @@
   --border: #e3e4e8;
   --accent: #332288;
   --accent-fg: #ffffff;
+  --danger: #b3261e;
+  --warn-fg: #7a6a00;
+  --map-scheme: light;
   --radius: 8px;
   --maxw: 68rem;
   --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
 }
 
+/* The inline script in <head> sets data-theme before first paint, so this is
+   always present and the media query below is only a fallback for the moment
+   before it runs (and for anyone with JS off). */
+:root[data-theme="dark"] {
+  --bg: #101014;
+  --fg: #f2f2f4;
+  --muted: #a1a4ae;
+  --border: #2a2b33;
+  --accent: #a99ce0;
+  --accent-fg: #101014;
+  --danger: #f2b8b5;
+  --warn-fg: #ddcc77;
+  --map-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --bg: #ffffff;
+  --fg: #16161a;
+  --muted: #5c5f6b;
+  --border: #e3e4e8;
+  --accent: #332288;
+  --accent-fg: #ffffff;
+  --danger: #b3261e;
+  --warn-fg: #7a6a00;
+  --map-scheme: light;
+}
+
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme]) {
     --bg: #101014;
     --fg: #f2f2f4;
     --muted: #a1a4ae;
     --border: #2a2b33;
     --accent: #a99ce0;
     --accent-fg: #101014;
+    --danger: #f2b8b5;
+    --warn-fg: #ddcc77;
+    --map-scheme: dark;
   }
 }
 
@@ -34,6 +67,12 @@ html,
 body {
   margin: 0;
   padding: 0;
+}
+
+:root { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) { color-scheme: dark; }
 }
 
 body {
@@ -246,15 +285,9 @@ a {
 }
 
 .dropzone-error {
-  color: #b3261e;
+  color: var(--danger);
   font-size: 0.875rem;
   margin: 0.75rem 0 0;
-}
-
-@media (prefers-color-scheme: dark) {
-  .dropzone-error {
-    color: #f2b8b5;
-  }
 }
 
 /* Steps ---------------------------------------------------------------- */
@@ -558,4 +591,196 @@ a {
   border-radius: 4px;
   padding: 0.15rem 0.4rem;
   font-size: 0.85rem;
+}
+
+/* Upload flow ---------------------------------------------------------- */
+
+.upload-page h2 { margin-top: 2.5rem; }
+
+.mapper-ok { color: var(--muted); }
+.mapper-missing { color: var(--danger); }
+.mapper-missing code, .mapper-ok code { font-size: 0.85em; }
+.mapper-table select { font: inherit; padding: 0.25rem; max-width: 16rem; }
+.mapper-table tr.is-unmapped th[scope="row"] code { opacity: 0.55; }
+.mapper-desc { color: var(--muted); font-size: 0.85rem; }
+
+.preview-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+.preview-table { margin: 0; font-size: 0.8rem; white-space: nowrap; }
+.preview-table th, .preview-table td { padding: 0.4rem 0.6rem; }
+.preview-target { display: block; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--fg); }
+.preview-source { display: block; font-size: 0.7rem; color: var(--muted); font-weight: 400; }
+.cell-empty { color: var(--muted); }
+.cell-note { display: block; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.03em; }
+.cell-error { background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.cell-error .cell-note { color: var(--danger); }
+.cell-warn { background: color-mix(in srgb, #DDCC77 22%, transparent); }
+.cell-warn .cell-note { color: var(--warn-fg); }
+.preview-issues { font-size: 0.85rem; color: var(--muted); margin: 0 0 0.5rem; }
+
+/* Constraints panel ---------------------------------------------------- */
+
+.settings { border: 1px solid var(--border); border-radius: var(--radius); margin: 2rem 0; }
+.settings > summary {
+  cursor: pointer; padding: 0.9rem 1.25rem; font-weight: 600;
+  display: flex; justify-content: space-between; gap: 1rem; align-items: baseline;
+}
+.settings-hint { color: var(--muted); font-weight: 400; font-size: 0.85rem; }
+.settings-body { padding: 0 1.25rem 1.25rem; border-top: 1px solid var(--border); }
+.settings-lede { color: var(--muted); font-size: 0.9rem; margin: 1rem 0 1.5rem; max-width: 60ch; }
+
+.constraint { padding: 0.85rem 0; border-bottom: 1px solid var(--border); }
+.constraint:last-of-type { border-bottom: none; }
+.constraint-head { display: flex; align-items: center; gap: 0.5rem; }
+.constraint-head label, .constraint-static { font-weight: 500; }
+.constraint-desc { color: var(--muted); font-size: 0.85rem; margin: 0.25rem 0 0 0; max-width: 62ch; }
+.constraint-fields { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 0.6rem; }
+.constraint-fields select { font: inherit; padding: 0.25rem; }
+
+.numfield { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; }
+.numfield label { color: var(--muted); }
+.numfield input { font: inherit; width: 5rem; padding: 0.2rem 0.4rem; }
+.numfield-unit { color: var(--muted); }
+
+.deviations {
+  margin-top: 1.25rem; padding: 0.9rem 1rem; font-size: 0.85rem;
+  border-left: 3px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+.deviations ul { margin: 0.4rem 0 0; padding-left: 1.1rem; color: var(--muted); }
+
+.unsupported { margin-top: 1.5rem; font-size: 0.85rem; }
+.unsupported > summary { cursor: pointer; color: var(--muted); }
+.unsupported ul { list-style: none; padding: 0; margin: 0.75rem 0 0; display: grid; gap: 0.75rem; }
+
+/* Submit --------------------------------------------------------------- */
+
+.submit-row { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; margin: 2rem 0; }
+.btn-primary {
+  font: inherit; font-weight: 600; padding: 0.7rem 1.4rem; border: none;
+  border-radius: var(--radius); background: var(--accent); color: var(--accent-fg); cursor: pointer;
+}
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.submit-blocked { color: var(--muted); font-size: 0.85rem; }
+.submit-cancel { color: var(--muted); font-size: 0.85rem; }
+
+/* Session progress ----------------------------------------------------- */
+
+.progress-bar { height: 0.5rem; background: var(--border); border-radius: 4px; overflow: hidden; max-width: 34rem; }
+.progress-bar span { display: block; height: 100%; background: var(--accent); transition: width 0.4s ease; }
+.progress-detail { color: var(--muted); font-size: 0.9rem; margin-top: 0.75rem; }
+
+/* Results -------------------------------------------------------------- */
+
+.results h1 { font-size: 2rem; }
+.headline-gap { max-width: 60ch; }
+.geometry-warning {
+  font-size: 0.85rem; color: var(--muted); border-left: 3px solid #DDCC77;
+  padding: 0.6rem 0.9rem; background: color-mix(in srgb, #DDCC77 8%, transparent);
+  border-radius: 0 var(--radius) var(--radius) 0; max-width: 72ch;
+}
+
+/* Map ------------------------------------------------------------------ */
+
+.map-shell { margin: 1.5rem 0 2.5rem; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.map-canvas { height: 32rem; width: 100%; }
+.map-loading { display: flex; align-items: center; justify-content: center; color: var(--muted); background: var(--border); }
+.map-toolbar {
+  display: flex; gap: 1rem; align-items: center; justify-content: space-between;
+  padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--border); flex-wrap: wrap;
+}
+.map-modes { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.map-modes button {
+  font: inherit; font-size: 0.85rem; padding: 0.3rem 0.8rem; border: none;
+  background: transparent; color: inherit; cursor: pointer;
+}
+.map-modes button.is-active { background: var(--accent); color: var(--accent-fg); }
+.map-modes button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.route-toggles { font-size: 0.85rem; position: relative; }
+.route-toggles > summary { cursor: pointer; color: var(--muted); }
+.route-toggles ul { list-style: none; margin: 0.5rem 0 0; padding: 0; max-height: 14rem; overflow-y: auto; }
+.route-toggles label { display: flex; align-items: center; gap: 0.4rem; padding: 0.15rem 0; }
+.route-toggle-actions { display: flex; gap: 0.75rem; margin-top: 0.4rem; }
+.route-swatch { width: 0.75rem; height: 0.75rem; border-radius: 2px; display: inline-block; }
+
+/* MapLibre popup content */
+.map-pop { font-size: 0.8rem; min-width: 11rem; }
+.map-pop-head { font-weight: 600; margin-bottom: 0.3rem; }
+.map-pop dl { display: grid; grid-template-columns: auto 1fr; gap: 0.1rem 0.6rem; margin: 0; }
+.map-pop dt { color: var(--muted); }
+.map-pop dd { margin: 0; }
+.map-badge {
+  display: inline-block; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.03em;
+  background: #882255; color: #fff; padding: 0.05rem 0.35rem; border-radius: 3px; margin-bottom: 0.3rem;
+}
+
+/* Findings ------------------------------------------------------------- */
+
+.findings-head { display: flex; align-items: baseline; gap: 1rem; justify-content: space-between; flex-wrap: wrap; }
+.findings-count { color: var(--muted); font-weight: 400; }
+.btn-link { font: inherit; font-size: 0.85rem; background: none; border: none; padding: 0; color: var(--accent); cursor: pointer; text-decoration: underline; }
+.finding-list { list-style: none; padding: 0; margin: 1rem 0 0; display: grid; gap: 0.5rem; }
+.finding {
+  width: 100%; text-align: left; font: inherit; cursor: pointer;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: transparent; color: inherit; padding: 0.75rem 1rem;
+}
+.finding:hover { border-color: var(--accent); }
+.finding.is-selected { border-color: var(--accent); border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.finding-top { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem; flex-wrap: wrap; }
+.sev { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.04em; padding: 0.1rem 0.4rem; border-radius: 3px; }
+.finding-cat, .finding-routes { font-size: 0.75rem; color: var(--muted); }
+.finding-title { display: block; font-weight: 500; }
+.finding-body {
+  border: 1px solid var(--accent); border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius); padding: 0.75rem 1rem; font-size: 0.9rem;
+}
+.finding-body p { margin: 0 0 0.6rem; max-width: 70ch; }
+.finding-next { font-size: 0.85rem; }
+.evidence { display: grid; grid-template-columns: auto 1fr; gap: 0.1rem 0.75rem; font-size: 0.8rem; margin: 0 0 0.6rem; }
+.evidence dt { color: var(--muted); }
+.evidence dd { margin: 0; font-variant-numeric: tabular-nums; }
+.evidence-vs { color: var(--muted); }
+
+/* Downloads ------------------------------------------------------------ */
+
+.downloads { margin-top: 3rem; }
+.downloads .btn-primary, .downloads .btn-secondary { display: inline-block; text-decoration: none; margin-right: 0.75rem; }
+.btn-secondary {
+  font: inherit; font-weight: 600; padding: 0.7rem 1.4rem; cursor: pointer;
+  border: 1px solid var(--border); border-radius: var(--radius); background: transparent; color: inherit;
+}
+.downloads .dim-note { margin-top: 0.75rem; }
+
+/* Theme toggle --------------------------------------------------------- */
+
+.theme-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.theme-toggle button {
+  font: inherit; font-size: 0.9rem; line-height: 1; padding: 0.3rem 0.5rem;
+  border: none; background: transparent; color: var(--muted); cursor: pointer;
+}
+.theme-toggle button.is-active { background: var(--accent); color: var(--accent-fg); }
+.theme-toggle button:hover:not(.is-active) { color: var(--fg); }
+
+/* MapLibre's popup ships its own light chrome; match it to the page rather
+   than leaving a white card floating in a dark map. */
+:root[data-theme="dark"] .maplibregl-popup-content,
+:root[data-theme="dark"] .maplibregl-ctrl-attrib {
+  background: var(--bg);
+  color: var(--fg);
+}
+:root[data-theme="dark"] .maplibregl-popup-anchor-top .maplibregl-popup-tip { border-bottom-color: var(--bg); }
+:root[data-theme="dark"] .maplibregl-popup-anchor-bottom .maplibregl-popup-tip { border-top-color: var(--bg); }
+:root[data-theme="dark"] .maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: var(--bg); }
+:root[data-theme="dark"] .maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: var(--bg); }
+:root[data-theme="dark"] .map-pop dt { color: var(--muted); }
+
+.topbar {
+  display: flex;
+  justify-content: flex-end;
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 0.75rem 1.5rem 0;
+  width: 100%;
 }
