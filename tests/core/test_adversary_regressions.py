@@ -37,12 +37,8 @@ def _client(tmp_path: Path) -> TestClient:
     app = create_app(settings=settings)
     # The per-IP rate limit (10/hour) is keyed on the client address, and every
     # TestClient shares "testserver", so a file with a dozen uploads starts
-    # earning 429s that have nothing to do with what it is testing.
-    #
-    # It has to be the module-level limiter in routes.py: that is the instance
-    # the @limiter.limit decorator closed over at import time. app.state.limiter
-    # is a SECOND, separate Limiter that the request path never consults —
-    # disabling that one changes nothing.
+    # earning 429s that have nothing to do with what it is testing. Rate limiting
+    # has its own coverage; here it is noise.
     routes_module.limiter.enabled = False
     return TestClient(app, raise_server_exceptions=False)
 

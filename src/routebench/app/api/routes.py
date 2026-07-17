@@ -23,6 +23,10 @@ from routebench.core.validation import validate_csv
 from routebench.core.version import build_info
 from routebench.infra.storage.local import LocalStorageBackend
 
+# THE limiter. The @limiter.limit decorators below close over this instance at
+# import time, so this is the one that actually rate-limits — app.py imports it
+# rather than constructing its own, because a second Limiter on app.state would
+# look authoritative while the request path never consulted it.
 limiter = Limiter(key_func=get_remote_address)
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger()
