@@ -87,6 +87,49 @@ anyway. Fixed two ways: the report is now the FIRST thing the agent writes and
 is updated per category, and a build step fails the run if it is absent. Prose
 was not enough; a gate is.
 
+**Run 2** (2026-07-17, against `init-main`) found **9 defects across 6 classes**,
+all real, all fixed. Its tests are promoted to
+`tests/core/test_adversary_regressions_run2.py`.
+
+- **Stored XSS in the HTML report.** The Jinja environment was built with
+  `autoescape=False`, and `route_id` — taken verbatim from the upload, with no
+  character restriction — is interpolated straight into `report.html`, which is
+  served as `text/html`. A `<script>` tag in a route_id executed in the browser
+  of whoever opened the report. The flag was not gratuitous: `{{ css }}` and the
+  chart SVGs are genuine markup and must pass through raw, so the fix turns
+  escaping on and wraps only those two in `Markup`. The charts embed `route_id`
+  on their axes; Altair escapes it, which was checked rather than assumed.
+- **Quadratic bounding-box check, in the request handler.** `_check_bounding_box`
+  compared every pair of stops — O(n^2) — inside the synchronous part of
+  `POST /sessions`. A single well-formed 3,000-stop route, comfortably inside the
+  5,000-stop limit, burned ~1.7s of CPU. The function now measures what its name
+  says: the box, in one pass.
+- **`inf` accepted as a traffic speed factor.** `Field(gt=0)` does not exclude
+  `inf`, because `inf > 0` is True. `1e400` parsed to `inf` and collapsed every
+  adjusted travel time to zero. Now upper-bounded and `allow_inf_nan=False`.
+- **A misspelled config key was silently ignored.** Pydantic's default is
+  `extra="ignore"`, so `work_rules.mx_shift_hours` fell back to the default and
+  the caller got a clean 202 for an analysis that ignored the constraint they
+  set. Now `extra="forbid"` on every config model.
+- **A negative `service_time_minutes` was a 500.** `Stop`'s own constraints raise
+  *pydantic's* `ValidationError`, a different class from this package's, so the
+  `except` clauses never caught it and it escaped the handler uncaught.
+- **A fractional `stop_sequence` was silently truncated.** `cast(pl.Int64)` on a
+  float column truncates rather than raising, so `0.9` became `0` — and `0` is
+  what marks the depot. A typo quietly promoted a delivery to the depot.
+
+Fixing the last one surfaced a seventh, unprompted by the harness: `validate_csv`
+ended with a hardcoded `is_valid=True`, so any error accumulated while building
+rows would have returned a **quietly truncated fleet marked valid**. That is the
+same class as run 1's `enforce_time_windows`: a value computed and then ignored.
+
+**The gate worked; it was pointed at the wrong thing.** Run 1's report was
+missing entirely, so run 2 made the file mandatory — and got a file. The agent
+wrote the skeleton first as instructed and then never updated a row: all eleven
+categories still read "NOT YET PROBED" beside nine real findings. Checking that
+the file exists is not checking that it says anything. The next iteration needs
+to assert on content, not presence.
+
 ## Where it came from
 
 Derived from the adversary half of

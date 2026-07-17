@@ -212,14 +212,36 @@ jobs:
         continue-on-error: true
         run: |
           REPORT="reports/adversary/robustness-${{ github.run_number }}.md"
-          if [ ! -s "$REPORT" ]; then
-            echo "::error ::Adversary did not write $REPORT. The findings still open a PR, but this run is incomplete: there is no record of which categories were cleared."
+
+          # Two distinct failures, both seen in the wild:
+          #   run 1 wrote no report at all;
+          #   run 2 wrote the skeleton first (as instructed) and then never
+          #     updated a row, so all 11 categories still said NOT YET PROBED
+          #     next to 9 real findings.
+          # A presence check passes the second one. Checking that the file
+          # exists is not checking that it says anything, so this asserts on
+          # content: no category may remain unprobed in a finished run.
+          UNPROBED=0
+          if [ -s "$REPORT" ]; then
+            UNPROBED=$(grep -c "NOT YET PROBED" "$REPORT" || true)
+          fi
+
+          if [ ! -s "$REPORT" ] || [ "$UNPROBED" -gt 0 ]; then
             echo "present=false" >> "$GITHUB_OUTPUT"
             mkdir -p reports/adversary
+            if [ ! -s "$REPORT" ]; then
+              echo "::error ::Adversary did not write $REPORT. The findings still open a PR, but this run is incomplete: there is no record of which categories were cleared."
+              REASON="The adversary did not produce the required coverage report."
+            else
+              echo "::error ::$REPORT still has $UNPROBED categories marked NOT YET PROBED. The agent wrote the skeleton and never filled it in, so this run records no coverage."
+              REASON="The adversary left $UNPROBED categories marked NOT YET PROBED — it wrote the skeleton and never updated it."
+              cp "$REPORT" "${REPORT%.md}-skeleton.md"
+            fi
             {
-              echo "# Robustness run ${{ github.run_number }} — REPORT MISSING"
+              echo "# Robustness run ${{ github.run_number }} — COVERAGE NOT RECORDED"
               echo
-              echo "The adversary did not produce the required coverage report."
+              echo "$REASON"
+              echo
               echo "Any failing tests in \`tests/adversary/\` are still real findings,"
               echo "but this run cannot tell you which categories were probed and"
               echo "found CLEAN — so absence of a finding here is NOT evidence of"

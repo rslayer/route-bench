@@ -11,7 +11,7 @@ from datetime import time
 from itertools import pairwise
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Claude pricing (per 1M tokens)
@@ -33,6 +33,12 @@ class WorkRules(BaseModel):
     the caller deserves. Reject it at the door.
     """
 
+    # extra="forbid": pydantic's default is to ignore unknown keys, so
+    # `{"work_rules": {"mx_shift_hours": 8}}` was accepted, silently fell back to
+    # the default, and the caller got a clean 202 for an analysis that ignored the
+    # constraint they set. A misspelled key is a mistake worth a 422.
+    model_config = ConfigDict(extra="forbid")
+
     max_shift_hours: float = Field(default=12.0, gt=0, le=24)
     pre_trip_minutes: float = Field(default=15.0, ge=0, le=1440)
     post_trip_minutes: float = Field(default=15.0, ge=0, le=1440)
@@ -49,6 +55,8 @@ class WorkRules(BaseModel):
 class ServiceTimeModel(BaseModel):
     """Service time defaults and overrides."""
 
+    model_config = ConfigDict(extra="forbid")
+
     # ge=0 mirrors Stop.service_time_minutes. Without it a negative default was
     # accepted here and then rejected by Stop deep inside validate_csv, turning
     # a bad request into a 500.
@@ -62,9 +70,14 @@ class TrafficBand(BaseModel):
     the pipeline reads `planned_start_time` (see analysis.scoring.time).
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     start: time  # inclusive
     end: time  # exclusive
-    speed_factor: float = Field(gt=0)  # multiplies free-flow speed; <1.0 slows travel
+    # Upper-bounded and inf/nan-rejecting, not just `gt=0`: `inf > 0` is True, so a
+    # bare gt=0 accepted `1e400` -> inf, and every adjusted travel time collapsed to
+    # 0. 10x free-flow is already far past anything a real profile describes.
+    speed_factor: float = Field(gt=0, le=10.0, allow_inf_nan=False)
 
     @model_validator(mode="after")
     def _start_must_precede_end(self) -> TrafficBand:
@@ -85,8 +98,10 @@ class TrafficProfile(BaseModel):
     reproduces free-flow behavior exactly.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     bands: list[TrafficBand] = Field(default_factory=list)
-    default_factor: float = Field(default=1.0, gt=0)
+    default_factor: float = Field(default=1.0, gt=0, le=10.0, allow_inf_nan=False)
 
     @model_validator(mode="after")
     def _bands_must_not_overlap(self) -> TrafficProfile:
@@ -139,6 +154,8 @@ NAMED_TRAFFIC_PROFILES: dict[str, TrafficProfile] = {"urban_us": URBAN_US_PROFIL
 
 class AnalysisConfig(BaseModel):
     """Configuration for the analysis pipeline."""
+
+    model_config = ConfigDict(extra="forbid")
 
     work_rules: WorkRules = Field(default_factory=WorkRules)
     service_time: ServiceTimeModel = Field(default_factory=ServiceTimeModel)
