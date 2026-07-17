@@ -130,6 +130,35 @@ categories still read "NOT YET PROBED" beside nine real findings. Checking that
 the file exists is not checking that it says anything. The next iteration needs
 to assert on content, not presence.
 
+**Run 3** (2026-07-17, against `init-main`) found **5 defects across 5 classes**,
+all real, all fixed. Its tests are promoted to
+`tests/agent/test_verifier_number_evasion.py` and
+`tests/analysis/test_time_window_regressions.py`.
+
+- **Two verifier evasions, both defeating the Phase 10.5 hardening.** A number
+  glued to a unit letter ("4700min") sat between two word chars, so
+  `_NUMBER_RE`'s trailing `\b` matched nothing and the figure was never
+  extracted. And `_mask_identifiers`' plain `str.replace` erased a finding_id
+  even as the PREFIX of a larger fabricated number, leaving a lone leftover
+  digit that matched a real value — a fabricated $123M passed clean. Fixed with
+  `(?!\d)` and whole-token `(?<!\w)id(?!\w)` masking.
+- **Contradictory time window inflated idle time.** A window closing before it
+  opens made the scoring path idle ~9 hours toward an impossible open time. The
+  benchmark path already widened such a window to no constraint; the scoring
+  path — what the report shows — did not.
+- **Malformed time silently dropped.** An unparseable time was swallowed to
+  None, indistinguishable from an absent column, while every other bad field
+  surfaces something. Same class as run 2's fractional `stop_sequence`.
+
+**The gate found a bug in itself.** Run 2's fix made the report mandatory AND
+asserted on content — but with two bugs of its own, both of which run 3 walked
+into. It counted the term "NOT YET PROBED" everywhere including the status
+legend that *defines* it, so it failed a fully-filled report on one legend line;
+and on failure it OVERWROTE the report with a stub, destroying run 3's genuinely
+complete coverage record (saved only by an afterthought side-copy). Both fixed:
+count only category rows, and prepend a banner instead of overwriting. A gate
+must not destroy the artifact it is judging.
+
 ## Where it came from
 
 Derived from the adversary half of
