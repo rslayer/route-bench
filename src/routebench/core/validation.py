@@ -174,10 +174,17 @@ def validate_csv(
                     )
                 )
 
-        # Lat/lon range validation
+        # Lat/lon range validation.
+        #
+        # `not (-90 <= lat <= 90)` rather than `lat < -90 or lat > 90`: NaN
+        # compares False against EVERY bound, so the second form lets NaN
+        # through as if it were in range. That is not theoretical — a NaN on a
+        # depot row was accepted silently (is_valid=True) and carried into
+        # routing, distance maths, and the geojson export. Inverting the
+        # in-range test makes NaN fail, since "is it inside?" is False for NaN.
         lat = row.get("latitude")
         lon = row.get("longitude")
-        if lat is not None and (lat < -90 or lat > 90):
+        if lat is not None and not (-90 <= lat <= 90):
             errors.append(
                 ValidationError(
                     row=row_idx + 1,
@@ -186,7 +193,7 @@ def validate_csv(
                     message=f"latitude {lat} out of range [-90, 90] at row {row_idx + 1}",
                 )
             )
-        if lon is not None and (lon < -180 or lon > 180):
+        if lon is not None and not (-180 <= lon <= 180):
             errors.append(
                 ValidationError(
                     row=row_idx + 1,

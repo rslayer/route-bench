@@ -34,7 +34,30 @@ class LocalStorageBackend:
         return self._base / session_id
 
     def _object_path(self, key: str) -> Path:
-        return self._base / _OBJECTS_DIR / key
+        """Resolve an object key inside the objects directory, or refuse.
+
+        `base / key` is not safe on its own: pathlib gives `/` POSIX join
+        semantics, so an ABSOLUTE key silently replaces the base entirely
+        ("/etc/passwd" resolves to /etc/passwd, not base/_objects/etc/passwd),
+        and "../" segments walk out of it. That is an arbitrary file read and
+        append primitive sitting under any caller that ever passes a key it did
+        not construct itself.
+
+        Today every key is built internally (BudgetTracker's date-formatted
+        ledger name), so this is not reachable — which is exactly why it is
+        worth closing now, while it is cheap and before some future caller
+        forwards a key from a request.
+
+        Confinement is checked after resolution rather than by scrubbing "..":
+        blacklisting patterns invites the next encoding trick, while asking
+        "did we land inside the directory?" is the actual question.
+        """
+        root = (self._base / _OBJECTS_DIR).resolve()
+        candidate = (root / key).resolve()
+        if candidate != root and root not in candidate.parents:
+            msg = f"Object key escapes the storage root: {key!r}"
+            raise ValueError(msg)
+        return candidate
 
     async def write(self, session_id: str, filename: str, data: bytes) -> None:
         def _write() -> None:
