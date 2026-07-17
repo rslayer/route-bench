@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, init-main]
+    branches: [main]
   pull_request:
-    branches: [main, init-main]
+    branches: [main]
 
 jobs:
   lint-type-test:

@@ -66,7 +66,7 @@ export default async function Footer() {
           <span>
             Source-available under{" "}
             <a
-              href={`${REPO_URL}/blob/init-main/LICENSE.md`}
+              href={`${REPO_URL}/blob/main/LICENSE.md`}
               target="_blank"
               rel="noopener noreferrer"
             >
