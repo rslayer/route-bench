@@ -23,7 +23,14 @@ logger: structlog.stdlib.BoundLogger = structlog.get_logger()
 # unrelated source values.
 _COMMA_GROUPED = r"\d{1,3}(?:,\d{3})+(?:\.\d+)?"
 _PLAIN = r"\d+(?:\.\d+)?"
-_NUMBER_RE = re.compile(rf"\b(?:{_COMMA_GROUPED}|{_PLAIN})\b")
+# Trailing edge is (?!\d), NOT \b. A word boundary requires the char after the
+# number to be non-word, so a digit run glued to a unit letter ("4700min",
+# "8500lbs") sat between two word chars and matched NOTHING — the whole
+# fabricated figure was skipped, not flagged. (?!\d) ends the token at the last
+# digit while still allowing a trailing letter, so "4700min" yields 4700 to be
+# checked. The leading \b is kept: it stops a letter-prefixed label like "Q4"
+# from being read as the claim "4", which is formatting, not a fleet number.
+_NUMBER_RE = re.compile(rf"\b(?:{_COMMA_GROUPED}|{_PLAIN})(?!\d)")
 _ROUTE_ID_RE = re.compile(r"\b(R[-_]\w+)\b")
 _FINDING_ID_RE = re.compile(r"\b([0-9a-f]{8,16})\b")
 
@@ -131,7 +138,16 @@ def _mask_identifiers(prose: str, slot: ProseSlot) -> str:
     known_ids = set(slot.required_references) | _extract_finding_ids_from_data(slot.input_data)
     for identifier in known_ids:
         if identifier:
-            masked = masked.replace(identifier, " " * len(identifier))
+            # Whole-token replace, not substring. A plain str.replace blanked an
+            # identifier wherever its digits appeared — including as the PREFIX
+            # of a larger fabricated number. A finding_id "12345678" inside the
+            # invented "$123456789" was erased down to a lone "9", which then
+            # coincidentally matched a real source value and passed the whole
+            # figure. Requiring non-word chars on both sides masks the id only
+            # when it stands alone; embedded in a longer number it stays intact
+            # and gets checked as the number it really is.
+            pattern = rf"(?<!\w){re.escape(identifier)}(?!\w)"
+            masked = re.sub(pattern, " " * len(identifier), masked)
     return masked
 
 
