@@ -167,13 +167,25 @@ jobs:
             input accepted as valid. Error-path bugs count: if the input is
             rejected but serializing the rejection crashes, that is a defect.
 
-            MANDATORY DELIVERABLE — you are NOT done until this file exists:
-            `reports/adversary/robustness-${{ github.run_number }}.md`. For ALL
-            11 categories it must record: the category, what you sent, and the
-            result — DEFECT (with expected-vs-actual) or CLEAN (input handled
-            correctly). List every category even when clean, so the next run
-            does not re-walk cleared ground. A run without this report is
-            incomplete.
+            THE REPORT IS THE FIRST THING YOU WRITE, NOT THE LAST.
+
+            Before you probe anything, create
+            `reports/adversary/robustness-${{ github.run_number }}.md` with all
+            11 categories listed and marked "NOT YET PROBED". After each
+            category, update its row immediately — do not batch this to the end.
+
+            This ordering is not a style preference. The previous run spent its
+            whole turn budget probing, never wrote the report, and left no record
+            of which categories were CLEARED — so a reader could see what broke
+            but not what was safe, which is half the value. A run that stops
+            early with a partially-filled report is far more useful than one that
+            finds bugs and cannot say what it covered. A build step now fails the
+            run if this file is missing.
+
+            Each row records: the category, what you sent, and the result —
+            DEFECT (with expected-vs-actual) or CLEAN (input handled correctly).
+            List every category even when clean, so the next run does not re-walk
+            cleared ground.
 
             Do not modify anything under `src/routebench/`.
           claude_args: '--model sonnet --max-turns 60 --allowedTools "Read,Grep,Glob,Write,Bash"'
@@ -188,6 +200,34 @@ jobs:
             exit 1
           fi
           echo "OK: src/routebench/ product code is untouched."
+
+      # --- GATE: the coverage report is a deliverable, not a nicety ---
+      # Without it a reader learns what broke but not what was CLEARED, and the
+      # next run re-walks the same ground. The prompt has always said this was
+      # mandatory and run 1 skipped it anyway, so it is checked here instead of
+      # asked for. continue-on-error so the findings still reach a PR — the run
+      # is failed at the end, after the evidence is safe.
+      - name: Verify coverage report
+        id: report_check
+        continue-on-error: true
+        run: |
+          REPORT="reports/adversary/robustness-${{ github.run_number }}.md"
+          if [ ! -s "$REPORT" ]; then
+            echo "::error ::Adversary did not write $REPORT. The findings still open a PR, but this run is incomplete: there is no record of which categories were cleared."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            mkdir -p reports/adversary
+            {
+              echo "# Robustness run ${{ github.run_number }} — REPORT MISSING"
+              echo
+              echo "The adversary did not produce the required coverage report."
+              echo "Any failing tests in \`tests/adversary/\` are still real findings,"
+              echo "but this run cannot tell you which categories were probed and"
+              echo "found CLEAN — so absence of a finding here is NOT evidence of"
+              echo "absence of a defect."
+            } > "$REPORT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
 
       # --- RUN the adversary tests — failures ARE the findings ---
       - name: Run adversary tests
@@ -234,3 +274,12 @@ jobs:
           Defects found: **$DEFECTS**")"
           echo "PR: $PR_URL"
           gh pr comment "$PR_URL" --body "🔍 **Robustness run $N** reproduced **$DEFECTS** defect(s). See \`reports/adversary/robustness-$N.md\`."
+
+      # Loud, and last: the findings are safely on a PR by now, so failing here
+      # costs nothing but makes an incomplete run impossible to mistake for a
+      # clean one.
+      - name: Fail if the coverage report was missing
+        if: steps.report_check.outputs.present == 'false'
+        run: |
+          echo "::error ::Run incomplete — the adversary skipped its coverage report. Findings (if any) are on the PR, but coverage is unknown."
+          exit 1
