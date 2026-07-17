@@ -456,6 +456,7 @@ def validate_csv(
                     address=_safe_str(srow.get("address")),
                 )
             except PydanticValidationError as exc:
+                seq = srow["stop_sequence"]
                 for err in exc.errors():
                     field = ".".join(str(p) for p in err["loc"]) or "(row)"
                     errors.append(
@@ -463,7 +464,7 @@ def validate_csv(
                             row=None,
                             column=field,
                             code="INVALID_VALUE",
-                            message=f"Route '{route_id}', stop {srow['stop_sequence']}: {err['msg']}",
+                            message=f"Route '{route_id}', stop {seq}: {err['msg']}",
                         )
                     )
                 continue
