@@ -164,12 +164,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         logger.info("cors_enabled", origins=origins)
 
-    # Rate limiting
-    from slowapi import Limiter
+    # Rate limiting.
+    #
+    # Reuse the limiter the route decorators are bound to. Constructing a second
+    # one here left two instances: the decorators enforced against theirs, while
+    # app.state held a different object that nothing consulted — so tuning or
+    # disabling app.state.limiter silently did nothing. slowapi's exception
+    # handler expects to find the real one on app.state.
     from slowapi.errors import RateLimitExceeded
-    from slowapi.util import get_remote_address
 
-    limiter = Limiter(key_func=get_remote_address)
+    from routebench.app.api.routes import limiter
+
     app.state.limiter = limiter
 
     @app.exception_handler(RateLimitExceeded)

@@ -26,10 +26,13 @@ export default function Dropzone() {
       if (!file) return;
       setError(null);
 
-      const isCsv =
-        file.type === "text/csv" ||
-        file.type === "application/vnd.ms-excel" ||
-        file.name.toLowerCase().endsWith(".csv");
+      // The name is the reliable signal, not the MIME type. Windows reports
+      // .csv files as application/vnd.ms-excel, so that type has to be allowed —
+      // but allowing it on its own let a genuine .xlsx through, since the OS
+      // reports those the same way. Require the extension, and treat the MIME
+      // as corroboration for the rare file that has no extension at all.
+      const name = file.name.toLowerCase();
+      const isCsv = name.endsWith(".csv") || (!name.includes(".") && file.type === "text/csv");
       if (!isCsv) {
         setError(
           `${file.name} is not a CSV. Export your route plan as CSV and try again.`,
