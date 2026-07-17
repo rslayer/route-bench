@@ -13,6 +13,7 @@ from pathlib import Path
 
 import polars as pl
 import structlog
+from pydantic import ValidationError as PydanticValidationError
 
 from routebench.core.config import AnalysisConfig
 from routebench.core.schemas import (
@@ -114,6 +115,36 @@ def validate_csv(
             defaults_applied=defaults_applied,
             summary={"total_rows": len(df)},
         )
+
+    # Reject a fractional stop_sequence before casting. `cast(pl.Int64)` on a
+    # float column truncates silently rather than raising, so "0.9" became 0 —
+    # and 0 is what marks the depot. A typo'd sequence quietly promoted a
+    # delivery to the depot and reordered the route, with no error anywhere.
+    if df["stop_sequence"].dtype in (pl.Float32, pl.Float64):
+        non_integral = df.filter(
+            pl.col("stop_sequence").is_not_null()
+            & (pl.col("stop_sequence") != pl.col("stop_sequence").floor())
+        )
+        if non_integral.height > 0:
+            errors.append(
+                ValidationError(
+                    row=None,
+                    column="stop_sequence",
+                    code="INVALID_TYPE",
+                    message=(
+                        f"stop_sequence must be a whole number; found "
+                        f"{non_integral.height} fractional value(s), e.g. "
+                        f"{non_integral['stop_sequence'][0]}"
+                    ),
+                )
+            )
+            return None, ValidationReport(
+                is_valid=False,
+                errors=errors,
+                warnings=warnings,
+                defaults_applied=defaults_applied,
+                summary={"total_rows": len(df)},
+            )
 
     # Cast stop_sequence to int
     try:
@@ -401,22 +432,41 @@ def validate_csv(
 
         for i in range(stop_rows.height):
             srow = stop_rows.row(i, named=True)
-            stop = Stop(
-                route_id=route_id,
-                stop_sequence=int(srow["stop_sequence"]),
-                latitude=float(srow["latitude"]),
-                longitude=float(srow["longitude"]),
-                stop_type=srow.get("stop_type", "delivery") or "delivery",
-                planned_arrival_time=_parse_datetime(srow.get("planned_arrival_time")),
-                service_time_minutes=float(srow.get("service_time_minutes", 5.0) or 5.0),
-                time_window_start=_parse_time(srow.get("time_window_start")),
-                time_window_end=_parse_time(srow.get("time_window_end")),
-                demand_units=_safe_float(srow.get("demand_units")),
-                demand_weight=_safe_float(srow.get("demand_weight")),
-                demand_volume=_safe_float(srow.get("demand_volume")),
-                customer_id=_safe_str(srow.get("customer_id")),
-                address=_safe_str(srow.get("address")),
-            )
+            # Stop's own field constraints (service_time_minutes >= 0, and the
+            # rest) raise pydantic's ValidationError, which is a different class
+            # from this module's ValidationError and so was never caught here.
+            # validate_csv is called straight from the POST /sessions handler,
+            # so a single negative service time in a CSV surfaced as a 500
+            # instead of the 422 every other bad cell gets.
+            try:
+                stop = Stop(
+                    route_id=route_id,
+                    stop_sequence=int(srow["stop_sequence"]),
+                    latitude=float(srow["latitude"]),
+                    longitude=float(srow["longitude"]),
+                    stop_type=srow.get("stop_type", "delivery") or "delivery",
+                    planned_arrival_time=_parse_datetime(srow.get("planned_arrival_time")),
+                    service_time_minutes=float(srow.get("service_time_minutes", 5.0) or 5.0),
+                    time_window_start=_parse_time(srow.get("time_window_start")),
+                    time_window_end=_parse_time(srow.get("time_window_end")),
+                    demand_units=_safe_float(srow.get("demand_units")),
+                    demand_weight=_safe_float(srow.get("demand_weight")),
+                    demand_volume=_safe_float(srow.get("demand_volume")),
+                    customer_id=_safe_str(srow.get("customer_id")),
+                    address=_safe_str(srow.get("address")),
+                )
+            except PydanticValidationError as exc:
+                for err in exc.errors():
+                    field = ".".join(str(p) for p in err["loc"]) or "(row)"
+                    errors.append(
+                        ValidationError(
+                            row=None,
+                            column=field,
+                            code="INVALID_VALUE",
+                            message=f"Route '{route_id}', stop {srow['stop_sequence']}: {err['msg']}",
+                        )
+                    )
+                continue
             stops.append(stop)
 
         total_stops += len(stops)
@@ -464,6 +514,20 @@ def validate_csv(
             summary={"total_rows": len(df), "route_count": len(routes)},
         )
 
+    # Any error accumulated while building rows (a stop that failed its own
+    # field constraints, say) means we do not have the fleet the caller
+    # uploaded — some stops were skipped. Returning it anyway with
+    # is_valid=True, as this did, would analyse a quietly truncated route and
+    # report the result as if it were the whole thing.
+    if errors:
+        return None, ValidationReport(
+            is_valid=False,
+            errors=errors,
+            warnings=warnings,
+            defaults_applied=defaults_applied,
+            summary={"total_rows": len(df), "route_count": len(routes)},
+        )
+
     upload_id = str(uuid.uuid4())
     fleet = Fleet(
         routes=routes,
@@ -496,23 +560,41 @@ def _check_bounding_box(
     coords: list[tuple[float, float]],
     warnings: list[ValidationWarning],
 ) -> None:
-    """Flag if any pair of stops in a route are >500 miles apart."""
-    for i in range(len(coords)):
-        for j in range(i + 1, len(coords)):
-            dist = _haversine_miles(coords[i][0], coords[i][1], coords[j][0], coords[j][1])
-            if dist > 500:
-                warnings.append(
-                    ValidationWarning(
-                        row=None,
-                        column=None,
-                        code="LARGE_BOUNDING_BOX",
-                        message=(
-                            f"Route '{route_id}': stops {i} and {j} are "
-                            f"{dist:.0f} miles apart (>500 miles, possible typo)"
-                        ),
-                    )
-                )
-                return
+    """Flag if a route's stops span more than 500 miles corner to corner.
+
+    Measures the route's bounding box — the name's promise — in a single pass.
+    The previous implementation compared every pair of stops, which is O(n^2)
+    and runs synchronously inside POST /sessions: a single well-formed route
+    with a few thousand clustered stops, comfortably inside the 5,000-stop
+    limit, burned seconds of CPU in the request handler and needed no malice to
+    trigger.
+
+    The box diagonal is an upper bound on the distance between any two stops in
+    it, so a route that stays inside 500 miles still never warns. A route that
+    trips this is flagged on its span rather than on a specific pair; the check
+    exists to catch a typo'd coordinate, and one bad digit blows out the box.
+    """
+    if len(coords) < 2:
+        return
+
+    lats = [c[0] for c in coords]
+    lons = [c[1] for c in coords]
+    min_lat, max_lat = min(lats), max(lats)
+    min_lon, max_lon = min(lons), max(lons)
+
+    span = _haversine_miles(min_lat, min_lon, max_lat, max_lon)
+    if span > 500:
+        warnings.append(
+            ValidationWarning(
+                row=None,
+                column=None,
+                code="LARGE_BOUNDING_BOX",
+                message=(
+                    f"Route '{route_id}': stops span {span:.0f} miles corner to corner "
+                    f"(>500 miles, possible typo)"
+                ),
+            )
+        )
 
 
 def _safe_float(val: object) -> float | None:
