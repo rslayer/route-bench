@@ -99,7 +99,10 @@ async def run_session(
     try:
         # Stage 1: Validate CSV
         await _emit("validating", 5, "Validating CSV data")
-        fleet, report = validate_csv(upload_path)
+        # config, not the default: service_time.default_minutes is consumed
+        # here, so omitting it made the constraints panel's service-time
+        # control inert.
+        fleet, report = validate_csv(upload_path, config)
         if fleet is None:
             errors_json = json.dumps(
                 [{"code": e.code, "message": e.message} for e in report.errors]

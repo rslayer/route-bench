@@ -63,6 +63,30 @@ Unfixed findings are *expected* to fail; including them would make CI red by
 design and train everyone to ignore it. Promotion (step 3 above) is the
 deliberate act that moves a test from "known defect" to "guarded behaviour".
 
+## Run history
+
+**Run 1** (2026-07-17, against `init-main`) found **8 defects across 4 classes**,
+all real, all fixed in `dbaec0d`:
+
+- **NaN coordinates bypassed validation.** `nan < -90` and `nan > 90` are both
+  False, so the range guard never fired. On a depot row it was accepted silently
+  and carried a NaN into routing and geojson.
+- **Path traversal in storage keys.** `base / "/etc/passwd"` resolves to
+  `/etc/passwd` — pathlib join semantics discard the base.
+- **The caller's config never reached `validate_csv`.** Accepted, persisted,
+  echoed back, ignored.
+- **Non-object config JSON → 500** instead of 422.
+
+It also *predicted*, in a test comment, that fixing the third would expose
+unbounded config values causing further 500s. It was right.
+
+Its tests are promoted to `tests/core/test_adversary_regressions.py`.
+
+**Its report was missing** — the prompt said mandatory, the agent skipped it
+anyway. Fixed two ways: the report is now the FIRST thing the agent writes and
+is updated per category, and a build step fails the run if it is absent. Prose
+was not enough; a gate is.
+
 ## Where it came from
 
 Derived from the adversary half of

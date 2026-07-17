@@ -83,8 +83,20 @@ async def create_session(
     if config:
         try:
             config_data = json.loads(config)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=422, detail=f"Invalid config: {exc}") from exc
+        # Valid JSON that is not an object — "[1,2,3]", "42", a bare string —
+        # reaches AnalysisConfig(**data) and raises TypeError, which the old
+        # handler did not catch, so a malformed request became a 500. Rejecting
+        # the shape first keeps the error where it belongs: with the caller.
+        if not isinstance(config_data, dict):
+            raise HTTPException(
+                status_code=422,
+                detail="Invalid config: expected a JSON object",
+            )
+        try:
             analysis_config = AnalysisConfig(**config_data)
-        except (json.JSONDecodeError, ValueError) as exc:
+        except (TypeError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=f"Invalid config: {exc}") from exc
 
     # Quick CSV validation (synchronous, cheap)
@@ -96,7 +108,10 @@ async def create_session(
         tmp_path = Path(f.name)
 
     try:
-        fleet, report = validate_csv(tmp_path)
+        # Pass the config through: validate_csv reads service_time to fill in
+        # per-stop defaults, and without it the caller's choice was accepted,
+        # persisted, echoed back, and silently ignored.
+        fleet, report = validate_csv(tmp_path, analysis_config)
         if fleet is None:
             errors = [{"code": e.code, "message": e.message} for e in report.errors]
             raise HTTPException(status_code=422, detail={"validation_errors": errors})

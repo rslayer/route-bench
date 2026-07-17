@@ -23,13 +23,21 @@ MAX_UPLOAD_BYTES: int = 50 * 1024 * 1024  # 50 MB
 
 
 class WorkRules(BaseModel):
-    """Work rules governing shift constraints."""
+    """Work rules governing shift constraints.
 
-    max_shift_hours: float = 12.0
-    pre_trip_minutes: float = 15.0
-    post_trip_minutes: float = 15.0
-    lunch_minutes: float = 30.0
-    lunch_after_hours: float = 6.0
+    Bounds are load-bearing, not decoration. This model is the boundary between
+    a user-supplied config JSON and the analysis, and the models downstream have
+    their own constraints (Stop.service_time_minutes is ge=0). An unbounded
+    value here is accepted, carried inward, and then rejected by a model that
+    was never meant to face user input — surfacing as a 500 rather than the 422
+    the caller deserves. Reject it at the door.
+    """
+
+    max_shift_hours: float = Field(default=12.0, gt=0, le=24)
+    pre_trip_minutes: float = Field(default=15.0, ge=0, le=1440)
+    post_trip_minutes: float = Field(default=15.0, ge=0, le=1440)
+    lunch_minutes: float = Field(default=30.0, ge=0, le=1440)
+    lunch_after_hours: float = Field(default=6.0, ge=0, le=24)
     enforce_time_windows: bool = True
     # Capacity was previously decided purely by whether the upload carried
     # capacity columns, so there was no way to ask "how would this plan look
@@ -41,7 +49,10 @@ class WorkRules(BaseModel):
 class ServiceTimeModel(BaseModel):
     """Service time defaults and overrides."""
 
-    default_minutes: float = 5.0
+    # ge=0 mirrors Stop.service_time_minutes. Without it a negative default was
+    # accepted here and then rejected by Stop deep inside validate_csv, turning
+    # a bad request into a 500.
+    default_minutes: float = Field(default=5.0, ge=0, le=1440)
 
 
 class TrafficBand(BaseModel):
@@ -132,9 +143,9 @@ class AnalysisConfig(BaseModel):
     work_rules: WorkRules = Field(default_factory=WorkRules)
     service_time: ServiceTimeModel = Field(default_factory=ServiceTimeModel)
     traffic: TrafficProfile = Field(default_factory=TrafficProfile)
-    sequencing_threshold: float = 1.30
-    underutilization_threshold: float = 0.60
-    overutilization_threshold: float = 0.95
+    sequencing_threshold: float = Field(default=1.30, gt=0)
+    underutilization_threshold: float = Field(default=0.60, ge=0, le=1)
+    overutilization_threshold: float = Field(default=0.95, ge=0, le=1)
     include_benchmark: bool = True
     include_pdf: bool = False
 
