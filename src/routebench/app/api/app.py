@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from routebench.agent.client import LLMClient
+from routebench.analysis.visuals.maps import set_default_tile_source
 from routebench.app.api.admin import router as admin_router
 from routebench.app.api.routes import router as session_router
 from routebench.app.budget import BudgetTracker
@@ -27,6 +28,7 @@ from routebench.infra.matrix.haversine import HaversineMatrixProvider
 from routebench.infra.matrix.osrm import OSRMMatrixProvider
 from routebench.infra.storage.base import StorageBackend
 from routebench.infra.storage.local import LocalStorageBackend
+from routebench.infra.tiles import from_settings as tiles_from_settings
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger()
 
@@ -86,6 +88,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings = Settings()
 
     _configure_logging(settings.log_level)
+
+    # Decide the basemap once, at startup, rather than per render. Off unless
+    # configured, so no deployment makes outbound tile calls without saying so.
+    tile_source = tiles_from_settings(settings)
+    set_default_tile_source(tile_source)
+    logger.info("basemap_configured", tile_source=tile_source.name, enabled=tile_source.enabled)
+
     storage = _build_storage(settings)
     # OSRM is the real source of road-network travel times, but it must not be a
     # single point of failure for the whole service: unwrapped, an unreachable
