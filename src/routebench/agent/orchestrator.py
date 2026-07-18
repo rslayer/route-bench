@@ -73,6 +73,10 @@ class AnalysisOrchestrator:
         self._matrix_provider = matrix_provider
         self._telemetry = telemetry
         self._fleet_matrix_cache: MatrixResult | None = None
+        # Set once the matrices are fetched. Recorded on the instance rather than
+        # threaded as a parameter because _build_report has two call sites and a
+        # flag that only reaches one of them is worse than no flag at all.
+        self._matrix_approximate = False
 
     def _fleet_matrix(self, fleet: Fleet) -> MatrixResult:
         """Combined fleet matrix, built on first use and reused thereafter.
@@ -124,6 +128,11 @@ class AnalysisOrchestrator:
                 self._matrix_provider,
                 self._config.work_rules,
             )
+
+        # One estimated route taints the whole analysis: fleet-level metrics sum
+        # across routes, so a grade computed from a mix of measured and guessed
+        # times would be neither. `any` is the honest reduction.
+        self._matrix_approximate = any(m.approximate for m in per_route_matrices.values())
 
         # Step 2: Filter tools by applicability
         available_tools: list[AnalysisTool] = []
@@ -272,12 +281,25 @@ class AnalysisOrchestrator:
     ) -> AnalysisReport:
         # Graded last: the rubric reads findings (territory overlap) and the
         # benchmark, so it must run after both exist.
-        grade = compute_grade(
-            fleet_metrics=fleet_metrics,
-            route_metrics=route_metrics,
-            findings=findings,
-            benchmark=benchmark,
-        )
+        #
+        # Withheld entirely when travel times are straight-line estimates. Every
+        # dimension of the grade is a function of time or distance, so grading an
+        # approximate matrix would produce a letter that looks exactly as
+        # authoritative as a real one and is not. The rest of the report — routes,
+        # map, findings — still stands on its own and is still returned.
+        if self._matrix_approximate:
+            grade = None
+            logger.warning(
+                "grade_withheld_approximate_matrix",
+                reason="travel times are straight-line estimates; routing backend was unavailable",
+            )
+        else:
+            grade = compute_grade(
+                fleet_metrics=fleet_metrics,
+                route_metrics=route_metrics,
+                findings=findings,
+                benchmark=benchmark,
+            )
 
         return AnalysisReport(
             fleet=fleet,
@@ -285,6 +307,7 @@ class AnalysisOrchestrator:
             route_metrics=route_metrics,
             findings=findings,
             grade=grade,
+            matrix_approximate=self._matrix_approximate,
             benchmark=benchmark,
             analyses_run=analyses_run,
             analyses_skipped=analyses_skipped,

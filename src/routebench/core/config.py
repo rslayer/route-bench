@@ -201,11 +201,29 @@ class Settings(BaseSettings):
     )
 
     # LLM
+    #
+    # This must be a model ID the API actually serves. The previous default,
+    # "claude-sonnet-4-7", was not one — no such model exists — so every call
+    # would have 404'd the moment a real key was configured, in a way that
+    # reads exactly like a bad key. Check the ID against the current model list
+    # before changing it; do not pattern-match a new one from an old string.
     anthropic_api_key: str = ""
-    claude_model: str = "claude-sonnet-4-7"
+    claude_model: str = "claude-opus-4-8"
 
     # OSRM
     osrm_host: str = "http://localhost:5000"
+
+    # Basemap tiles for the report's route images. See infra/tiles.py.
+    #
+    # Off by default deliberately: the default would otherwise be an outbound
+    # call to a donated public service on every report, which is not a sensible
+    # thing to opt a deployment into silently. Routes still render, on a plain
+    # background. Turn it on and the OSM defaults apply; point map_tile_url at
+    # your own host if you serve real traffic.
+    map_tiles_enabled: bool = False
+    map_tile_url: str = "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png"
+    map_tile_attribution: str = "© OpenStreetMap contributors"
+    map_tile_timeout_seconds: float = 5.0
 
     # Web UI origin(s) allowed to call this API cross-origin. Comma-separated;
     # empty disables CORS entirely (the co-hosted Streamlit case, same-origin).

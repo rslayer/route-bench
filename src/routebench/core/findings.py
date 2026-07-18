@@ -245,6 +245,13 @@ class AnalysisReport(BaseModel):
     # The quality score. Optional so an artifact written before Phase 10.6 still
     # loads (admin replay reads old analysis.json files).
     grade: Grade | None = None
+    # True when travel times came from the straight-line fallback rather than the
+    # road network, because the routing backend was unreachable. The routes, map,
+    # and relative findings are still worth showing; the grade is not, so it is
+    # withheld and this flag is what lets the report and UI say why. Stored as a
+    # fact rather than a sentence: the wording belongs at the rendering edge, not
+    # baked into a persisted artifact.
+    matrix_approximate: bool = False
     analyses_run: list[str]
     analyses_skipped: list[tuple[str, str]]
     metadata: dict[str, object]

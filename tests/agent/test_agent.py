@@ -148,7 +148,7 @@ def _mock_llm_response(
         stop_reason=stop_reason,
         input_tokens=100,
         output_tokens=50,
-        model="claude-sonnet-4-7",
+        model="claude-opus-4-8",
     )
 
 
@@ -179,7 +179,7 @@ class TestOrchestrator:
         fleet = _make_fleet(n_routes=1)
 
         mock_client = MagicMock(spec=LLMClient)
-        mock_client._model = "claude-sonnet-4-7"
+        mock_client._model = "claude-opus-4-8"
         # LLM signals completion on first call
         mock_client.generate.return_value = _mock_llm_response(
             tool_calls=[
@@ -242,7 +242,7 @@ class TestOrchestrator:
         fleet = _make_fleet(n_routes=3)
 
         mock_client = MagicMock(spec=LLMClient)
-        mock_client._model = "claude-sonnet-4-7"
+        mock_client._model = "claude-opus-4-8"
         # First call: LLM requests analyze_sequencing
         # Second call: LLM signals done
         mock_client.generate.side_effect = [

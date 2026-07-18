@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from routebench.agent.client import LLMClient
+from routebench.analysis.visuals.maps import set_default_tile_source
 from routebench.app.api.admin import router as admin_router
 from routebench.app.api.routes import router as session_router
 from routebench.app.budget import BudgetTracker
@@ -22,9 +23,12 @@ from routebench.app.telemetry_sink import TelemetrySink
 from routebench.app.worker import SessionWorker
 from routebench.core.config import Settings
 from routebench.core.version import package_version
+from routebench.infra.matrix.fallback import FallbackMatrixProvider
+from routebench.infra.matrix.haversine import HaversineMatrixProvider
 from routebench.infra.matrix.osrm import OSRMMatrixProvider
 from routebench.infra.storage.base import StorageBackend
 from routebench.infra.storage.local import LocalStorageBackend
+from routebench.infra.tiles import from_settings as tiles_from_settings
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger()
 
@@ -84,8 +88,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings = Settings()
 
     _configure_logging(settings.log_level)
+
+    # Decide the basemap once, at startup, rather than per render. Off unless
+    # configured, so no deployment makes outbound tile calls without saying so.
+    tile_source = tiles_from_settings(settings)
+    set_default_tile_source(tile_source)
+    logger.info("basemap_configured", tile_source=tile_source.name, enabled=tile_source.enabled)
+
     storage = _build_storage(settings)
-    matrix_provider = OSRMMatrixProvider(host=settings.osrm_host)
+    # OSRM is the real source of road-network travel times, but it must not be a
+    # single point of failure for the whole service: unwrapped, an unreachable
+    # OSRM meant every upload was accepted with a 202 and then died at 15%. The
+    # haversine fallback keeps the site answering with clearly-labelled
+    # estimates, and the pipeline withholds the quality grade when it sees them.
+    matrix_provider = FallbackMatrixProvider(
+        primary=OSRMMatrixProvider(host=settings.osrm_host),
+        fallback=HaversineMatrixProvider(),
+    )
     llm_client = LLMClient(api_key=settings.anthropic_api_key, model=settings.claude_model)
 
     deps = PipelineDeps(

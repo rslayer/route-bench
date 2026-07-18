@@ -286,8 +286,18 @@ export interface AnalysisReport {
   route_metrics: Record<string, RouteMetrics>;
   findings: Finding[];
   benchmark: BenchmarkResult | null;
-  /** Null for artifacts written before the grading engine (Phase 10.6). */
+  /**
+   * Null for artifacts written before the grading engine (Phase 10.6), and
+   * also whenever `matrix_approximate` is true — see below.
+   */
   grade: Grade | null;
+  /**
+   * True when travel times were estimated from straight-line distance because
+   * the routing backend was unreachable. The routes, map, and findings still
+   * hold; the grade is withheld, so the UI must explain the absence rather than
+   * letting the score silently disappear.
+   */
+  matrix_approximate: boolean;
   analyses_run: string[];
   /** [tool_name, reason] — why a tool did not run, e.g. the fleet-benchmark cap. */
   analyses_skipped: [string, string][];

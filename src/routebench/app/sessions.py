@@ -110,6 +110,16 @@ class SessionRegistry:
     ) -> SessionStatus | None:
         status = self._active.get(session_id)
         if status is None:
+            # Every caller ignores this return value, so a miss here is an
+            # invisible no-op — which is exactly how a terminal "failed" update
+            # went missing and left a session pinned at "analyzing" forever.
+            # Losing a state transition is never routine; say so.
+            logger.warning(
+                "session_update_dropped_not_active",
+                session_id=session_id,
+                attempted_state=state,
+                reason="session is not in the active registry; the update was discarded",
+            )
             return None
         if state is not None:
             status.state = state

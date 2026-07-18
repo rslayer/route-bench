@@ -5,9 +5,29 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import numpy as np
+import pytest
 
 from routebench.core.schemas import Fleet, Route, Stop
 from routebench.infra.matrix.base import MatrixResult
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter() -> None:
+    """Clear the rate limiter between tests.
+
+    The Limiter in app.api.routes is module-level, so its counters are shared by
+    every test in the process. POST /sessions allows 10/hour, and each test
+    client looks like the same caller — so once the suite accumulated more than
+    ten uploads, an unrelated test started getting a 429 purely because of how
+    many tests ran before it. That is an ordering-dependent failure that says
+    nothing about the code under test.
+
+    Autouse rather than opt-in: the trap is invisible until you add the eleventh
+    upload test, and the next person to add one should not have to rediscover it.
+    """
+    from routebench.app.api.routes import limiter
+
+    limiter.reset()
 
 
 def make_ts(hour: int = 8, minute: int = 0) -> datetime:

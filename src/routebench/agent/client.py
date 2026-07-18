@@ -59,7 +59,7 @@ class LLMClient:
         self,
         *,
         api_key: str,
-        model: str = "claude-sonnet-4-7",
+        model: str = "claude-opus-4-8",
         telemetry: Telemetry | None = None,
     ) -> None:
         self._client = anthropic.Anthropic(api_key=api_key)
@@ -71,16 +71,22 @@ class LLMClient:
         messages: list[dict[str, Any]],
         system: str,
         tools: list[dict[str, Any]] | None = None,
-        temperature: float = 0.2,
         max_tokens: int = 4096,
         turn_id: str | None = None,
         slot_id: str | None = None,
     ) -> LLMResponse:
-        """Call Claude API with retry logic and telemetry."""
+        """Call Claude API with retry logic and telemetry.
+
+        No `temperature`. Sampling parameters (temperature/top_p/top_k) were
+        removed on current Claude models and a request carrying one is rejected
+        with a 400 — so the 0.2 this used to send would have failed every call,
+        not merely nudged the sampling. The determinism it was reaching for is
+        better served by the prompt and by the verifier, which already checks
+        every number in the generated prose against the source data.
+        """
         kwargs: dict[str, Any] = {
             "model": self._model,
             "max_tokens": max_tokens,
-            "temperature": temperature,
             "system": system,
             "messages": messages,
         }

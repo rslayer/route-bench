@@ -274,6 +274,26 @@ class SessionWorker:
                     message=f"Job exceeded {self._job_timeout}s timeout",
                 ),
             )
+        except Exception:
+            # Marked terminal HERE, while the session is still in `_active`.
+            #
+            # This used to be handled only by the caller in _run_loop, which
+            # runs after this function's `finally` has already called
+            # remove_active(). update() silently returns None for a session that
+            # is no longer active, so the failure was never recorded: the last
+            # persisted status stayed "analyzing" and the session hung in a
+            # non-terminal state forever. A browser polling /sessions/{id} — or
+            # holding the SSE stream — would wait for a completion that could
+            # never arrive. Any unexpected error must still leave the user with
+            # a terminal answer.
+            logger.exception("job_unhandled_error", session_id=session_id)
+            self._registry.update(
+                session_id,
+                state="failed",
+                progress_pct=0,
+                stage_detail="Internal error",
+                error=SessionError(code="INTERNAL_ERROR", message="Unhandled exception"),
+            )
         finally:
             await self._registry.persist(session_id)
             self._registry.remove_active(session_id)
