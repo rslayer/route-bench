@@ -65,6 +65,20 @@ class LLMClient:
         self._client = anthropic.Anthropic(api_key=api_key)
         self._model = model
         self._telemetry = telemetry
+        self._api_key = api_key
+
+    @property
+    def available(self) -> bool:
+        """Whether this client can actually reach the API.
+
+        The LLM is an enhancement here, not a requirement: it selects which
+        deterministic analyzers to run and writes the narrative prose. Every
+        number a user comes for — metrics, findings, benchmark, the grade — is
+        computed without it. Callers branch on this to run the deterministic
+        path rather than failing, so a missing key degrades the report instead
+        of taking the service down.
+        """
+        return bool(self._api_key)
 
     def generate(
         self,

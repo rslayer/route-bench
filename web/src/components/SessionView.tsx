@@ -186,6 +186,19 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
         </>
       )}
 
+      {/* Independent of the grade: the evaluation is complete either way, only
+          the writing changes. `=== false` rather than `!` so an older artifact
+          without the field does not show the notice. */}
+      {analysis.llm_assisted === false ? (
+        <p className="prose-templated" role="note">
+          <strong>Written summaries are off for this run.</strong> The
+          explanations below are filled from templates rather than written out.
+          Your score, findings, benchmark and map are unaffected — none of them
+          involve a language model, and every available check was run rather
+          than a selected subset.
+        </p>
+      ) : null}
+
       {geojson.properties.geometry_quality === "approximate" ? (
         <p className="geometry-warning" role="note">
           {/* The artifact's own note already says what happened and why; adding

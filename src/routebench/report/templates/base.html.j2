@@ -132,6 +132,19 @@
   <div class="section" id="verification">
     <h2>Prose Verification</h2>
     <div class="methodology">
+      {% if not llm_assisted %}
+      {# No model ran, so "failed verification" would be a lie — nothing was generated. #}
+      <p>This report was produced <strong>without a language model</strong>. All
+      {{ verification.total }} narrative section{{ '' if verification.total == 1 else 's' }}
+      {{ 'was' if verification.total == 1 else 'were' }} filled from templates built directly
+      from the structured findings, so there was no generated text to verify — a template can
+      only restate a number it was handed.</p>
+
+      <p>The analysis above is unaffected. Metrics, findings, the benchmark and the quality
+      grade are computed deterministically and never involve a model; every applicable
+      analyzer was run rather than a model-selected subset. What is missing is the written
+      explanation of <em>why</em> each finding matters.</p>
+      {% else %}
       <p>Every narrative claim in this report is checked against the structured findings it
       came from. Of {{ verification.total }} prose section{{ '' if verification.total == 1 else 's' }}:
       <strong>{{ verification.counts.verified }} verified</strong>{% if verification.counts.regenerated %},
@@ -143,6 +156,7 @@
       <p>A <em>deterministic fallback</em> means generated prose failed verification twice, so
       the section was replaced with text built directly from the structured data. It is
       accurate, but it was not written by the model and reads plainly.</p>
+      {% endif %}
       {% endif %}
 
       <table class="metrics-table">

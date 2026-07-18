@@ -16,8 +16,14 @@ import structlog
 
 from routebench.agent.client import LLMClient
 from routebench.agent.orchestrator import AnalysisOrchestrator
-from routebench.agent.verifier import Verifier, summarize_statuses
+from routebench.agent.verifier import (
+    VerificationResult,
+    Verifier,
+    deterministic_prose,
+    summarize_statuses,
+)
 from routebench.agent.writer import ReportWriter
+from routebench.app.budget import BudgetTracker
 from routebench.app.sessions import (
     CostSummary,
     SessionArtifacts,
@@ -52,6 +58,10 @@ class PipelineDeps:
     storage: StorageBackend
     llm_client: LLMClient
     settings: Settings
+    # Consulted once per run to decide whether the LLM may be used. Optional so
+    # that callers which do not meter spend (tests, one-off scripts) need not
+    # invent one.
+    budget_tracker: BudgetTracker | None = None
 
 
 @dataclass
@@ -131,11 +141,34 @@ async def run_session(
                 n_bands=len(config.traffic.bands),
             )
 
+        # Decide once whether the LLM may be used for this run, and let both the
+        # orchestrator and the prose stage honour the same answer.
+        #
+        # Two things can take it away: no API key, and a spent daily budget.
+        # The budget case used to reject the upload with a 503 for the rest of
+        # the UTC day, which took the entire site down over a spend cap on the
+        # one part of the analysis that is optional. The evaluation itself costs
+        # nothing to produce, so it still runs; only the tool selection and the
+        # narrative are lost.
+        llm_available = deps.llm_client.available
+        if (
+            llm_available
+            and deps.budget_tracker is not None
+            and await deps.budget_tracker.is_exceeded()
+        ):
+            llm_available = False
+            logger.info(
+                "llm_disabled_budget_exceeded",
+                session_id=session_id,
+                reason="daily budget spent; running the deterministic analysis",
+            )
+
         orchestrator = AnalysisOrchestrator(
             client=deps.llm_client,
             config=config,
             matrix_provider=matrix_provider,
             telemetry=session_telemetry,
+            llm_available=llm_available,
         )
         analysis = await asyncio.to_thread(orchestrator.run, fleet)
         _check_token_cap()
@@ -158,34 +191,60 @@ async def run_session(
                 },
             )
 
-        # Stage 3: Write prose
-        await _emit("writing", 50, "Generating report prose")
+        # Stages 3 and 4: prose, then verification of it.
+        #
+        # Both are skipped entirely when there is no LLM. Templated prose needs
+        # no verification: the verifier exists to catch a model inventing a
+        # number, and a template can only restate numbers it was given. Every
+        # slot is reported as "fallback", which is exactly what it is — the
+        # footer then says so rather than implying prose was checked and passed.
         doc = ReportDocument(analysis)
         slots = identify_prose_slots(analysis)
-        writer = ReportWriter(client=deps.llm_client)
-        prose = await asyncio.to_thread(writer.fill_slots, slots)
-        _check_token_cap()
-        await _emit("writing", 65, f"Prose generated for {len(prose)} slots")
 
-        # Stage 4: Verify prose
-        await _emit("writing", 70, "Verifying prose against findings")
-        verifier = Verifier(client=deps.llm_client)
+        if not llm_available:
+            await _emit("writing", 50, "Generating report prose (templates, no LLM)")
+            verified_prose = {slot.slot_id: deterministic_prose(slot) for slot in slots}
+            verification = {
+                slot.slot_id: VerificationResult(
+                    slot_id=slot.slot_id,
+                    passed=False,
+                    issues=["No LLM configured; prose filled from template"],
+                    status="fallback",
+                )
+                for slot in slots
+            }
+            logger.info(
+                "prose_templated",
+                session_id=session_id,
+                slots=len(slots),
+                reason="no LLM available",
+            )
+            await _emit("writing", 75, f"Prose templated for {len(slots)} slots")
+        else:
+            await _emit("writing", 50, "Generating report prose")
+            writer = ReportWriter(client=deps.llm_client)
+            prose = await asyncio.to_thread(writer.fill_slots, slots)
+            _check_token_cap()
+            await _emit("writing", 65, f"Prose generated for {len(prose)} slots")
 
-        def _writer_fn(s: ProseSlot) -> str:
-            return writer.fill_slots([s]).get(s.slot_id, "")
+            await _emit("writing", 70, "Verifying prose against findings")
+            verifier = Verifier(client=deps.llm_client)
 
-        verified_prose, verification = await asyncio.to_thread(
-            verifier.verify_and_regenerate, prose, slots, _writer_fn
-        )
-        status_counts = summarize_statuses(verification)
-        logger.info("prose_verified", session_id=session_id, **status_counts)
-        await _emit(
-            "writing",
-            75,
-            f"Prose verified: {status_counts['verified']} verified, "
-            f"{status_counts['regenerated']} regenerated, "
-            f"{status_counts['fallback']} deterministic fallback",
-        )
+            def _writer_fn(s: ProseSlot) -> str:
+                return writer.fill_slots([s]).get(s.slot_id, "")
+
+            verified_prose, verification = await asyncio.to_thread(
+                verifier.verify_and_regenerate, prose, slots, _writer_fn
+            )
+            status_counts = summarize_statuses(verification)
+            logger.info("prose_verified", session_id=session_id, **status_counts)
+            await _emit(
+                "writing",
+                75,
+                f"Prose verified: {status_counts['verified']} verified, "
+                f"{status_counts['regenerated']} regenerated, "
+                f"{status_counts['fallback']} deterministic fallback",
+            )
 
         # Stage 5: Render HTML
         await _emit("rendering", 80, "Rendering HTML report")

@@ -67,8 +67,17 @@ class AnalysisOrchestrator:
         config: AnalysisConfig | None = None,
         matrix_provider: MatrixProvider | None = None,
         telemetry: Telemetry | None = None,
+        llm_available: bool | None = None,
     ) -> None:
         self._client = client
+        # Whether to use the LLM for this run. Defaults to whether the client
+        # could reach the API at all; a caller passes False to withhold it for a
+        # reason the client cannot know — a spent daily budget, most obviously.
+        # Never True when the client itself is unusable: an override cannot
+        # conjure an API key.
+        self._llm_available = (
+            client.available if llm_available is None else (llm_available and client.available)
+        )
         self._config = config or AnalysisConfig()
         self._matrix_provider = matrix_provider
         self._telemetry = telemetry
@@ -147,12 +156,46 @@ class AnalysisOrchestrator:
             else:
                 skipped.append((tool.name, check.reason))
 
-        # Step 3: LLM-driven tool selection loop
+        # Step 3: choose which of the applicable tools to run.
         findings: list[Finding] = []
         analyses_run: list[str] = []
         # Tools solve once and deposit their structured benchmarks here, so the
         # report can render them without re-running the solvers.
         benchmark_sink: dict[str, object] = {}
+
+        # Without an LLM, run every applicable tool.
+        #
+        # The LLM's only job in this loop is SELECTION — it picks from
+        # `available_tools`, which applicability_check has already filtered, and
+        # calls analysis_complete to stop. It contributes no content: findings
+        # come from the tools, which are deterministic, and its text never
+        # reaches the report. So the honest substitute for "no LLM" is not a
+        # degraded analysis, it is the exhaustive one.
+        #
+        # What is lost is economy, not substance. Selection lets the model skip
+        # benchmark tools it judges unhelpful, and those run OR-Tools solvers to
+        # a configured time limit. Running all of them is slower and arguably
+        # more complete.
+        if not self._llm_available:
+            logger.info(
+                "deterministic_tool_selection",
+                reason="no LLM available; running every applicable tool",
+                tools=[t.name for t in available_tools],
+            )
+            for tool in available_tools:
+                self._invoke_tool(
+                    tool, fleet, per_route_matrices, benchmark_sink, findings, analyses_run
+                )
+            return self._build_report(
+                fleet,
+                fleet_metrics,
+                route_metrics,
+                findings,
+                analyses_run,
+                skipped,
+                self._assemble_benchmark(benchmark_sink),
+            )
+
         tool_specs = build_tool_specs(available_tools)
 
         system_prompt = _load_prompt("orchestrator")
@@ -203,46 +246,29 @@ class AnalysisOrchestrator:
                     )
 
                 if tool_name in TOOLS:
-                    tool = TOOLS[tool_name]
-                    try:
-                        tool_kwargs: dict[str, Any] = {
-                            "matrices": per_route_matrices,
-                            "matrix_provider": self._matrix_provider,
-                            "work_rules": self._config.work_rules,
-                            "traffic_profile": self._config.traffic,
-                            "benchmark_sink": benchmark_sink,
-                        }
-                        if getattr(tool, "is_benchmark", False):
-                            # Solvers spend their limit in full, so these must
-                            # come from config rather than the tools' defaults.
-                            tool_kwargs["time_limit_s"] = (
-                                self._config.fleet_benchmark_time_limit_s
-                                if getattr(tool, "requires_fleet_matrix", False)
-                                else self._config.route_benchmark_time_limit_s
-                            )
-                        if getattr(tool, "requires_fleet_matrix", False):
-                            tool_kwargs["combined_matrix"] = self._fleet_matrix(fleet)
-
-                        tool_findings = tool.run(fleet, **tool_kwargs)
-                        findings.extend(tool_findings)
-                        analyses_run.append(tool_name)
-
-                        summary = f"{tool_name}: {len(tool_findings)} findings"
-                        tool_results.append(
-                            {
-                                "type": "tool_result",
-                                "tool_use_id": tc["id"],
-                                "content": summary,
-                            }
-                        )
-                    except Exception:
-                        logger.exception("tool_execution_error", tool=tool_name)
+                    n_findings = self._invoke_tool(
+                        TOOLS[tool_name],
+                        fleet,
+                        per_route_matrices,
+                        benchmark_sink,
+                        findings,
+                        analyses_run,
+                    )
+                    if n_findings is None:
                         tool_results.append(
                             {
                                 "type": "tool_result",
                                 "tool_use_id": tc["id"],
                                 "content": f"Error running {tool_name}",
                                 "is_error": True,
+                            }
+                        )
+                    else:
+                        tool_results.append(
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": tc["id"],
+                                "content": f"{tool_name}: {n_findings} findings",
                             }
                         )
                 else:
@@ -268,6 +294,50 @@ class AnalysisOrchestrator:
             skipped,
             self._assemble_benchmark(benchmark_sink),
         )
+
+    def _invoke_tool(
+        self,
+        tool: AnalysisTool,
+        fleet: Fleet,
+        per_route_matrices: dict[str, MatrixResult],
+        benchmark_sink: dict[str, object],
+        findings: list[Finding],
+        analyses_run: list[str],
+    ) -> int | None:
+        """Run one analysis tool, appending its findings. None on failure.
+
+        Shared by the LLM-driven loop and the deterministic path so the two
+        cannot drift: a tool that gets its time limit or fleet matrix in one
+        path but not the other would produce different results depending on
+        whether an API key happened to be configured.
+        """
+        tool_kwargs: dict[str, Any] = {
+            "matrices": per_route_matrices,
+            "matrix_provider": self._matrix_provider,
+            "work_rules": self._config.work_rules,
+            "traffic_profile": self._config.traffic,
+            "benchmark_sink": benchmark_sink,
+        }
+        if getattr(tool, "is_benchmark", False):
+            # Solvers spend their limit in full, so these must come from config
+            # rather than the tools' defaults.
+            tool_kwargs["time_limit_s"] = (
+                self._config.fleet_benchmark_time_limit_s
+                if getattr(tool, "requires_fleet_matrix", False)
+                else self._config.route_benchmark_time_limit_s
+            )
+        if getattr(tool, "requires_fleet_matrix", False):
+            tool_kwargs["combined_matrix"] = self._fleet_matrix(fleet)
+
+        try:
+            tool_findings = tool.run(fleet, **tool_kwargs)
+        except Exception:
+            logger.exception("tool_execution_error", tool=tool.name)
+            return None
+
+        findings.extend(tool_findings)
+        analyses_run.append(tool.name)
+        return len(tool_findings)
 
     def _build_report(
         self,
@@ -308,6 +378,7 @@ class AnalysisOrchestrator:
             findings=findings,
             grade=grade,
             matrix_approximate=self._matrix_approximate,
+            llm_assisted=self._llm_available,
             benchmark=benchmark,
             analyses_run=analyses_run,
             analyses_skipped=analyses_skipped,

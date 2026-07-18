@@ -298,6 +298,13 @@ export interface AnalysisReport {
    * letting the score silently disappear.
    */
   matrix_approximate: boolean;
+  /**
+   * False when the analysis ran with no language model — every applicable
+   * analyzer was run rather than a model-selected subset, and the prose is
+   * templated rather than written. Metrics, findings, benchmark and grade are
+   * unaffected; none of them involve a model.
+   */
+  llm_assisted: boolean;
   analyses_run: string[];
   /** [tool_name, reason] — why a tool did not run, e.g. the fleet-benchmark cap. */
   analyses_skipped: [string, string][];
