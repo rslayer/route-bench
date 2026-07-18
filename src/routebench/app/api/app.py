@@ -22,6 +22,8 @@ from routebench.app.telemetry_sink import TelemetrySink
 from routebench.app.worker import SessionWorker
 from routebench.core.config import Settings
 from routebench.core.version import package_version
+from routebench.infra.matrix.fallback import FallbackMatrixProvider
+from routebench.infra.matrix.haversine import HaversineMatrixProvider
 from routebench.infra.matrix.osrm import OSRMMatrixProvider
 from routebench.infra.storage.base import StorageBackend
 from routebench.infra.storage.local import LocalStorageBackend
@@ -85,7 +87,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     _configure_logging(settings.log_level)
     storage = _build_storage(settings)
-    matrix_provider = OSRMMatrixProvider(host=settings.osrm_host)
+    # OSRM is the real source of road-network travel times, but it must not be a
+    # single point of failure for the whole service: unwrapped, an unreachable
+    # OSRM meant every upload was accepted with a 202 and then died at 15%. The
+    # haversine fallback keeps the site answering with clearly-labelled
+    # estimates, and the pipeline withholds the quality grade when it sees them.
+    matrix_provider = FallbackMatrixProvider(
+        primary=OSRMMatrixProvider(host=settings.osrm_host),
+        fallback=HaversineMatrixProvider(),
+    )
     llm_client = LLMClient(api_key=settings.anthropic_api_key, model=settings.claude_model)
 
     deps = PipelineDeps(

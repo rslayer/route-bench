@@ -55,4 +55,18 @@
     Graded under rubric v{{ grade.grading_version }}. See Methodology for the full rubric.
   </p>
 </div>
+{% elif matrix_approximate %}
+{# The score is absent on purpose. A report that just omits its headline reads
+   as broken, so state the reason where the number would have been. #}
+<div class="section" id="quality-score">
+  <h2>Quality Score</h2>
+  <p class="grade-withheld">
+    <strong>Withheld.</strong> The routing service was unavailable for this run,
+    so travel times throughout this report are estimated from straight-line
+    distance rather than measured over the road network. The routes, stops and
+    findings still stand; a score derived from estimated times would imply a
+    precision this data does not have. Re-run once routing is available for a
+    graded result.
+  </p>
+</div>
 {% endif %}

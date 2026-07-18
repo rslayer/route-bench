@@ -21,6 +21,13 @@ class MatrixResult(BaseModel):
     provider: str
     cached: bool
     cost_estimate: float = 0.0
+    # True when these numbers are estimated rather than derived from the road
+    # network — a straight-line fallback used because the routing service was
+    # unreachable. Callers must be able to tell the difference: an approximate
+    # matrix is fine for showing a user their routes and relative findings, but
+    # it is not a basis for grading route quality, so the pipeline withholds the
+    # grade rather than publishing one computed from guessed travel times.
+    approximate: bool = False
 
     def durations_array(self) -> np.ndarray[tuple[int, int], np.dtype[np.float64]]:
         """Return durations as a NumPy 2D array."""

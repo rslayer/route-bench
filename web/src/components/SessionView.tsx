@@ -168,7 +168,22 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
           ) : null}
         </>
       ) : (
-        <h1>Your results</h1>
+        <>
+          <h1>Your results</h1>
+          {/* A missing score with no explanation reads as a broken page. When
+              the grade was withheld on purpose, say so and say why — the rest
+              of the analysis below is still worth reading. */}
+          {analysis.matrix_approximate ? (
+            <p className="grade-withheld" role="note">
+              <strong>Quality score withheld.</strong> The routing service was
+              unavailable, so travel times below are estimated from
+              straight-line distance rather than real road networks. Your
+              routes, stops, and findings still hold, but a score computed from
+              estimated times would look more precise than it is. Re-run once
+              routing is back to get a graded result.
+            </p>
+          ) : null}
+        </>
       )}
 
       {geojson.properties.geometry_quality === "approximate" ? (

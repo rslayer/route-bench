@@ -680,6 +680,17 @@ a {
   border-radius: 0 var(--radius) var(--radius) 0; max-width: 72ch;
 }
 
+/* Shown in place of the score when travel times were estimated. Weightier than
+   .geometry-warning — that one qualifies a detail, this one explains why the
+   headline number a user came for is absent. */
+.grade-withheld {
+  font-size: 0.9rem; color: var(--fg); border-left: 3px solid #CC6677;
+  padding: 0.8rem 1rem; background: color-mix(in srgb, #CC6677 8%, transparent);
+  border-radius: 0 var(--radius) var(--radius) 0; max-width: 72ch;
+  margin: 1rem 0 1.5rem;
+}
+.grade-withheld strong { color: var(--fg); }
+
 /* Map ------------------------------------------------------------------ */
 
 .map-shell { margin: 1.5rem 0 2.5rem; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
