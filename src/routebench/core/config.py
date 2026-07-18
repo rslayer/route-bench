@@ -201,8 +201,14 @@ class Settings(BaseSettings):
     )
 
     # LLM
+    #
+    # This must be a model ID the API actually serves. The previous default,
+    # "claude-sonnet-4-7", was not one — no such model exists — so every call
+    # would have 404'd the moment a real key was configured, in a way that
+    # reads exactly like a bad key. Check the ID against the current model list
+    # before changing it; do not pattern-match a new one from an old string.
     anthropic_api_key: str = ""
-    claude_model: str = "claude-sonnet-4-7"
+    claude_model: str = "claude-opus-4-8"
 
     # OSRM
     osrm_host: str = "http://localhost:5000"

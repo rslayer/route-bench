@@ -29,7 +29,7 @@ def _mock_llm_response(
         stop_reason="end_turn",
         input_tokens=100,
         output_tokens=50,
-        model="claude-sonnet-4-7",
+        model="claude-opus-4-8",
     )
 
 
@@ -73,7 +73,7 @@ class TestE2EPipeline:
 
         # Mock LLM client
         mock_client = MagicMock(spec=LLMClient)
-        mock_client._model = "claude-sonnet-4-7"
+        mock_client._model = "claude-opus-4-8"
 
         # Orchestrator: run sequencing, then done
         mock_client.generate.side_effect = [
@@ -133,7 +133,7 @@ class TestE2EPipeline:
 
         # Writer: mock LLM prose generation
         writer_client = MagicMock(spec=LLMClient)
-        writer_client._model = "claude-sonnet-4-7"
+        writer_client._model = "claude-opus-4-8"
         writer_client.generate.return_value = _mock_llm_response(
             text="Fleet of 3 routes covering 15 stops. R-001 finding abc.",
         )
