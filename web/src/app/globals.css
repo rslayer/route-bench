@@ -722,6 +722,28 @@ a {
 .map-modes button.is-active { background: var(--accent); color: var(--accent-fg); }
 .map-modes button:disabled { opacity: 0.4; cursor: not-allowed; }
 
+/* Shown only in "Both" mode. States the solid/dashed convention, which is
+   otherwise nowhere on the page. */
+.map-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.legend-item { display: inline-flex; align-items: center; gap: 0.4rem; color: var(--fg); }
+/* Drawn with borders rather than swatches so the dash pattern itself is the
+   signal — the same thing the eye is being asked to match on the map. */
+.legend-line { display: inline-block; width: 1.75rem; height: 0; }
+.legend-line-plan { border-top: 3px solid var(--fg); }
+.legend-line-solver { border-top: 2px dashed var(--muted); }
+.legend-line-migration { border-top: 2px dotted #CC6677; }
+/* Sits beside the mode buttons; inherits the toolbar's wrap. */
+.map-toggle { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--muted); }
+.legend-note { flex: 1 1 18rem; min-width: 0; }
+
 .route-toggles { font-size: 0.85rem; position: relative; }
 .route-toggles > summary { cursor: pointer; color: var(--muted); }
 .route-toggles ul { list-style: none; margin: 0.5rem 0 0; padding: 0; max-height: 14rem; overflow-y: auto; }

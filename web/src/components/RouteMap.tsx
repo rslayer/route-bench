@@ -3,7 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import maplibregl, { type ExpressionSpecification, type Map as MapLibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { DEPOT_COLOR, MIGRATION_COLOR, OPTIMAL_COLOR, routeColor } from "@/lib/palette";
+import {
+  ACTUAL_OFFSET_PX,
+  DEPOT_COLOR,
+  MIGRATION_COLOR,
+  OPTIMAL_OFFSET_PX,
+  routeColor,
+  routeColorMuted,
+} from "@/lib/palette";
 import type { RouteFeature, RoutesGeoJSON, StopProps } from "@/lib/types";
 
 /**
@@ -44,6 +51,8 @@ interface Props {
   routeIds: string[];
   visibleRoutes: Set<string>;
   mode: MapMode;
+  /** Reassignment arrows, off unless asked for — see SessionView. */
+  showMigrations: boolean;
   /** Finding the user selected; its routes/stops get highlighted and zoomed. */
   selectedFindingId: string | null;
   /** Route the user selected, which filters the findings list. */
@@ -58,11 +67,15 @@ interface Props {
  * requires at least one case pair, which the compiler cannot prove from a
  * spread, and the empty case is handled above.
  */
-function routeColorExpression(routeIds: string[]): ExpressionSpecification | string {
+function routeColorExpression(
+  routeIds: string[],
+  variant: "plan" | "solver" = "plan",
+): ExpressionSpecification | string {
+  const pick = variant === "solver" ? routeColorMuted : routeColor;
   if (routeIds.length === 0) return "#888888";
   const expr: unknown[] = ["match", ["get", "route_id"]];
   for (const id of routeIds) {
-    expr.push(id, routeColor(routeIds, id));
+    expr.push(id, pick(routeIds, id));
   }
   expr.push("#888888"); // a feature with no route_id (a depot) falls through
   return expr as unknown as ExpressionSpecification;
@@ -125,6 +138,7 @@ export default function RouteMap({
   routeIds,
   visibleRoutes,
   mode,
+  showMigrations,
   selectedFindingId,
   selectedRouteId,
   onSelectRoute,
@@ -138,6 +152,7 @@ export default function RouteMap({
 
   const visible = useMemo(() => [...visibleRoutes], [visibleRoutes]);
   const colorExpr = useMemo(() => routeColorExpression(routeIds), [routeIds]);
+  const mutedColorExpr = useMemo(() => routeColorExpression(routeIds, "solver"), [routeIds]);
 
   // --- create once ---------------------------------------------------------
   useEffect(() => {
@@ -169,6 +184,29 @@ export default function RouteMap({
       });
 
       // Order matters: optimal under actual, stops over both, depots on top.
+      //
+      // The two variants are the same route re-sequenced, so most of their
+      // length runs along identical road segments. Drawn concentrically they
+      // were indistinguishable — the solver line sat exactly under the plan
+      // line and was simply covered. Colour alone cannot fix that; the lines
+      // have to not occupy the same pixels.
+      //
+      // So they are separated on four channels at once, because any one of
+      // them fails somewhere:
+      //   offset  — pulls coincident segments apart into visible tramlines.
+      //             The load-bearing one. Sign is opposite per variant so the
+      //             gap is symmetric about the true path rather than shifting
+      //             the whole route sideways.
+      //   dash    — survives greyscale, printing, and colour-blind viewers.
+      //   width   — the plan is heavier; it is the subject, the solver is the
+      //             reference.
+      //   colour  — both carry the route's hue so it is still obvious the two
+      //             belong together, with the solver desaturated toward the
+      //             basemap so it reads as annotation rather than a peer.
+      //
+      // Offsets are in screen pixels and do not scale with zoom, which is the
+      // behaviour we want: the point is legibility of overlap, not a real
+      // distance, and at high zoom the lines genuinely diverge anyway.
       instance.addLayer({
         id: "optimal-lines",
         type: "line",
@@ -176,10 +214,15 @@ export default function RouteMap({
         filter: kindFilter("optimal", visible),
         layout: { "line-cap": "round", "line-join": "round" },
         paint: {
-          "line-color": OPTIMAL_COLOR,
-          "line-width": 2,
-          "line-dasharray": [2, 2],
-          "line-opacity": 0.9,
+          "line-color": mutedColorExpr,
+          "line-width": ["case", ["boolean", ["feature-state", "highlighted"], false], 3.5, 2],
+          "line-dasharray": [1.5, 1.5],
+          "line-offset": OPTIMAL_OFFSET_PX,
+          // Dimmed in step with the plan line, so selecting a finding fades
+          // both variants of the unrelated routes rather than leaving a thicket
+          // of solver lines behind. Base opacity is below the plan line's so it
+          // reads as the reference rather than competing with it.
+          "line-opacity": ["case", ["boolean", ["feature-state", "dimmed"], false], 0.1, 0.75],
         },
       });
 
@@ -192,6 +235,7 @@ export default function RouteMap({
         paint: {
           "line-color": colorExpr,
           "line-width": ["case", ["boolean", ["feature-state", "highlighted"], false], 5, 3],
+          "line-offset": ACTUAL_OFFSET_PX,
           "line-opacity": ["case", ["boolean", ["feature-state", "dimmed"], false], 0.15, 0.85],
         },
       });
@@ -331,9 +375,24 @@ export default function RouteMap({
     m.setLayoutProperty("actual-lines", "visibility", showActual ? "visible" : "none");
     m.setLayoutProperty("optimal-lines", "visibility", showOptimal ? "visible" : "none");
     // Migration arrows belong to the fleet re-solve, so they follow the optimal
-    // view rather than sitting on a plan they do not describe.
-    m.setLayoutProperty("migration-lines", "visibility", showOptimal ? "visible" : "none");
-  }, [visible, mode, ready]);
+    // view rather than sitting on a plan they do not describe — and then only
+    // when asked for. A fleet generates one arrow per reassigned stop, which on
+    // a 6-route sample is 33 lines criss-crossing the map; drawn by default
+    // they buried the two route lines the user opened "Both" to compare.
+    m.setLayoutProperty(
+      "migration-lines",
+      "visibility",
+      showOptimal && showMigrations ? "visible" : "none",
+    );
+
+    // The offset exists only to stop the two variants covering each other, so
+    // it applies only when both are on screen. Viewed alone, a route must sit
+    // on the road it actually drives — a permanent 2.5px shift would be a small
+    // lie about where the vehicle goes, and at high zoom a visible one.
+    const split = mode === "split";
+    m.setPaintProperty("actual-lines", "line-offset", split ? ACTUAL_OFFSET_PX : 0);
+    m.setPaintProperty("optimal-lines", "line-offset", split ? OPTIMAL_OFFSET_PX : 0);
+  }, [visible, mode, showMigrations, ready]);
 
   // --- highlight -----------------------------------------------------------
   useEffect(() => {
