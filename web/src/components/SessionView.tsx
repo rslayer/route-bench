@@ -58,6 +58,12 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
   const [selectedFindingId, setSelectedFindingId] = useState<string | null>(null);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
+  // Reassignment arrows answer a different question than the plan-vs-solver
+  // comparison — "which stops would move between routes" rather than "how does
+  // my order compare". On a 6-route fleet there are 33 of them, and drawn by
+  // default they buried the two route lines the user came to compare. Off
+  // until asked for.
+  const [showMigrations, setShowMigrations] = useState(false);
 
   const done = status !== null && TERMINAL_STATES.has(status.state);
 
@@ -138,6 +144,7 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
   if (!analysis || !geojson) return <Waiting label="Loading your results…" />;
 
   const hasOptimal = geojson.features.some((f) => f.properties.kind === "optimal");
+  const hasMigrations = geojson.features.some((f) => f.properties.kind === "migration");
 
   return (
     <div className="container results">
@@ -228,6 +235,17 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
             ))}
           </div>
 
+          {hasMigrations && mode !== "actual" ? (
+            <label className="map-toggle">
+              <input
+                type="checkbox"
+                checked={showMigrations}
+                onChange={() => setShowMigrations((v) => !v)}
+              />
+              Stop reassignments
+            </label>
+          ) : null}
+
           <details className="route-toggles">
             <summary>
               Routes ({visibleRoutes.size}/{routeIds.length})
@@ -266,11 +284,42 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
           </details>
         </div>
 
+        {/*
+          Only in "Both": with one variant on screen there is nothing to tell
+          apart, and a legend explaining a distinction the user cannot currently
+          see is noise. This is also the only place the dashed/solid convention
+          is ever stated — before this, nothing on the page said what the second
+          line was.
+        */}
+        {mode === "split" ? (
+          <p className="map-legend">
+            <span className="legend-item">
+              <span className="legend-line legend-line-plan" aria-hidden="true" />
+              Your plan
+            </span>
+            <span className="legend-item">
+              <span className="legend-line legend-line-solver" aria-hidden="true" />
+              Solver&rsquo;s order
+            </span>
+            {showMigrations ? (
+              <span className="legend-item">
+                <span className="legend-line legend-line-migration" aria-hidden="true" />
+                Stop moves to another route
+              </span>
+            ) : null}
+            <span className="legend-note">
+              Both lines follow each route&rsquo;s own colour. Where the two orders drive the
+              same road they are drawn side by side rather than on top of each other.
+            </span>
+          </p>
+        ) : null}
+
         <RouteMap
           geojson={geojson}
           routeIds={routeIds}
           visibleRoutes={visibleRoutes}
           mode={mode}
+          showMigrations={showMigrations}
           selectedFindingId={selectedFindingId}
           selectedRouteId={selectedRouteId}
           onSelectRoute={selectRoute}

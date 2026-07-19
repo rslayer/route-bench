@@ -42,10 +42,55 @@ export function routeColor(routeIds: readonly string[], routeId: string): string
 }
 
 /** The solver's tour, drawn against the plan. Deliberately neutral so the
- *  route colors stay the signal. */
+ *  route colors stay the signal.
+ *
+ *  Retained for the legend swatch and any non-map use. The map itself no
+ *  longer paints the solver line a flat grey: a single neutral colour made
+ *  every solver tour look like one object, and against the dark basemap
+ *  #666666 nearly vanished. It uses the route's own hue, muted. */
 export const OPTIMAL_COLOR = "#666666";
 export const MIGRATION_COLOR = "#CC6677";
 export const DEPOT_COLOR = "#000000";
+
+/**
+ * The solver variant of a route colour: same hue, pulled toward mid-grey.
+ *
+ * Same hue because the two lines describe the same route and must read as a
+ * pair. Muted because the plan is the subject and the solver is the reference
+ * against it — if both were fully saturated the eye would have no way to tell
+ * which one it was being asked to judge.
+ *
+ * Mixed toward #808080 rather than toward white or black so it behaves the
+ * same on the light and dark basemaps. Lightening would have disappeared
+ * against positron; darkening would have disappeared against dark-matter.
+ */
+export function routeColorMuted(routeIds: readonly string[], routeId: string): string {
+  return mixToward(routeColor(routeIds, routeId), 0x80, 0.45);
+}
+
+function mixToward(hex: string, target: number, amount: number): string {
+  const n = Number.parseInt(hex.slice(1), 16);
+  const mix = (channel: number): number =>
+    Math.round(channel + (target - channel) * amount);
+  const r = mix((n >> 16) & 0xff);
+  const g = mix((n >> 8) & 0xff);
+  const b = mix(n & 0xff);
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
+}
+
+/**
+ * Perpendicular screen-pixel offsets that pull the two variants apart.
+ *
+ * The plan and the solver tour traverse the same stops in a different order,
+ * so most of their length lies on identical road segments and one simply
+ * covered the other. Opposite signs keep the pair centred on the true path
+ * instead of shifting the whole route to one side.
+ *
+ * Only applied when both are on screen — see RouteMap's mode effect. Shown
+ * alone, a route must sit on its road.
+ */
+export const ACTUAL_OFFSET_PX = -2.5;
+export const OPTIMAL_OFFSET_PX = 2.5;
 
 export const SEVERITY_COLORS: Record<FindingSeverity, string> = {
   critical: "#882255",
