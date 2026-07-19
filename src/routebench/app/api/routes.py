@@ -349,16 +349,49 @@ async def healthz(request: Request) -> JSONResponse:
     # Check storage
     checks["storage_writable"] = await storage.is_writable()
 
-    # Check OSRM with a lightweight nearest query
+    # Check OSRM with a lightweight nearest query.
+    #
+    # The probe coordinate used to be the literal "0,0", which OSRM rejects with
+    # HTTP 400 `{"code": "InvalidUrl"}` — its URL grammar does not accept that
+    # exact string (0.0,0 and -0,0 fail the same way; 1,1 is fine). Paired with
+    # a `status_code == 200` test, that made healthz report degraded whenever
+    # OSRM was perfectly healthy, which in production means a load balancer
+    # pulls the app out of rotation over a dependency that is fine.
+    #
+    # Worth knowing for anyone tempted to make this probe stricter: OSRM has no
+    # default snapping radius, so /nearest answers *any* in-bounds-syntax
+    # coordinate with 200 and `code: Ok` by snapping to the closest edge in the
+    # graph however far away that is — 1,1 against a Texas-only extract snaps
+    # across the Atlantic and reports success. So this cannot verify which
+    # region is loaded, only that osrm-routed is up and serving. Verifying
+    # coverage would mean passing an explicit `radiuses=` bound and checking
+    # `waypoints[].distance`, which is a different question than readiness.
+    #
+    # Judged on whether OSRM answered *like OSRM*: every response carries a
+    # `code` field, success or failure, so a parseable body proves the process
+    # is serving. A connection error, a timeout, or an HTML error page from a
+    # proxy in front of a not-yet-ready container does not.
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"{settings.osrm_host}/nearest/v1/driving/0,0")
-            checks["osrm_reachable"] = resp.status_code == 200
+            resp = await client.get(f"{settings.osrm_host}/nearest/v1/driving/1,1")
+            if resp.status_code == 200:
+                checks["osrm_reachable"] = True
+            else:
+                body = resp.json()
+                checks["osrm_reachable"] = isinstance(body, dict) and "code" in body
     except Exception:
         checks["osrm_reachable"] = False
 
     all_ok = all(checks.values())
     return JSONResponse(
-        content={"status": "ok" if all_ok else "degraded", "checks": checks},
+        content={
+            "status": "ok" if all_ok else "degraded",
+            "checks": checks,
+            # What the deployment will actually do, not just what is up. A
+            # degraded matrix is the difference between a graded report and a
+            # withheld one, and that should be visible without reading logs.
+            "matrix_mode": "osrm" if checks["osrm_reachable"] else "haversine_estimates",
+            "grade_available": checks["osrm_reachable"],
+        },
         status_code=200 if all_ok else 503,
     )
