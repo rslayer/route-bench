@@ -10,7 +10,7 @@ import ColumnMapper, {
   type Mapping,
 } from "@/components/ColumnMapper";
 import ConstraintsPanel from "@/components/ConstraintsPanel";
-import { takeStagedFile } from "@/components/Dropzone";
+import { clearStagedFile, peekStagedFile } from "@/components/Dropzone";
 import RowPreview from "@/components/RowPreview";
 import { ApiError, createSession } from "@/lib/api";
 import { DEFAULT_PANEL, buildConfig, type PanelState } from "@/lib/config-builder";
@@ -49,7 +49,9 @@ export default function UploadPage() {
   const [submitError, setSubmitError] = useState<ApiError | Error | null>(null);
 
   useEffect(() => {
-    const staged = takeStagedFile();
+    // Peek, do not consume: StrictMode runs this effect twice in dev, and a
+    // destructive read made the second pass see nothing.
+    const staged = peekStagedFile();
     setFile(staged);
     if (!staged) return;
 
@@ -86,6 +88,9 @@ export default function UploadPage() {
     try {
       const prepared = await rewriteHeaders(file, mapping);
       const { session_id } = await createSession(prepared, buildConfig(panel));
+      // Handed off — drop it so a later visit to /upload does not silently
+      // resubmit a file the user has moved on from.
+      clearStagedFile();
       router.push(`/s/${session_id}`);
     } catch (err) {
       setSubmitError(err instanceof Error ? err : new Error(String(err)));

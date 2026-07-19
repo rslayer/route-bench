@@ -107,19 +107,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     llm_client = LLMClient(api_key=settings.anthropic_api_key, model=settings.claude_model)
 
+    # Built before deps: the pipeline consults it per run to decide whether the
+    # LLM may be used, so an exhausted budget degrades the analysis instead of
+    # rejecting the upload.
+    budget_tracker = BudgetTracker(
+        storage=storage,
+        daily_budget_usd=settings.daily_budget_usd,
+    )
+
     deps = PipelineDeps(
         matrix_provider=matrix_provider,
         storage=storage,
         llm_client=llm_client,
         settings=settings,
+        budget_tracker=budget_tracker,
     )
 
     registry = SessionRegistry(storage=storage)
     telemetry_sink = TelemetrySink(storage=storage)
-    budget_tracker = BudgetTracker(
-        storage=storage,
-        daily_budget_usd=settings.daily_budget_usd,
-    )
     worker = SessionWorker(
         deps=deps,
         registry=registry,

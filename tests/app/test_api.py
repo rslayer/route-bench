@@ -161,13 +161,20 @@ class TestQueueFull:
 
 
 class TestBudgetGating:
-    """Tests for 503 when daily budget exceeded."""
+    """A spent daily budget degrades the run; it does not reject the upload."""
 
-    def test_budget_exceeded_returns_503(self, settings: Settings) -> None:
-        """When daily budget is exceeded, POST /sessions returns 503."""
+    def test_budget_exceeded_still_accepts_the_upload(self, settings: Settings) -> None:
+        """This used to assert 503, and the behaviour it pinned was wrong.
+
+        Rejecting the upload took the whole service offline for the rest of the
+        UTC day over a cap on the one part of the analysis that is optional: the
+        LLM writes the narrative and picks which analyzers to run, while the
+        metrics, findings, benchmark and grade are computed deterministically
+        and cost nothing. The budget now withholds the LLM instead — the
+        pipeline sees it and takes the deterministic path.
+        """
         settings.daily_budget_usd = 0.0  # Force exceeded
         application = create_app(settings=settings)
-        # Manually mark budget as exceeded
         application.state.budget_tracker.record_spend(1.0)
         client = TestClient(application, raise_server_exceptions=False)
 
@@ -176,8 +183,10 @@ class TestBudgetGating:
             "/sessions",
             files={"file": ("test.csv", csv_data, "text/csv")},
         )
-        assert resp.status_code == 503
-        assert "budget" in resp.json()["detail"].lower()
+        assert resp.status_code == 202, (
+            "a spent budget must not take the service down — the evaluation "
+            "still runs, without the LLM"
+        )
 
 
 class TestReportDownload:

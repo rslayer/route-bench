@@ -107,6 +107,7 @@ class ReportDocument:
             benchmark=self._analysis.benchmark,
             grade=self._analysis.grade,
             matrix_approximate=self._analysis.matrix_approximate,
+            llm_assisted=self._analysis.llm_assisted,
             prose=prose,
             charts=charts,
             maps=maps,

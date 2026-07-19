@@ -59,6 +59,14 @@ export interface SessionStatus {
   state: SessionState;
   progress_pct: number;
   stage_detail: string;
+  /**
+   * Seconds of solver budget still to be spent, or null when the remaining
+   * work is not time-boxed. Not an estimate: OR-Tools runs to its configured
+   * limit rather than stopping when it converges, so during the benchmark
+   * phase this is a budget the solver WILL spend. Null everywhere else,
+   * because those phases are fast and variable and a number would be made up.
+   */
+  seconds_remaining: number | null;
   created_at: string;
   updated_at: string;
   error: SessionError | null;
@@ -298,6 +306,13 @@ export interface AnalysisReport {
    * letting the score silently disappear.
    */
   matrix_approximate: boolean;
+  /**
+   * False when the analysis ran with no language model — every applicable
+   * analyzer was run rather than a model-selected subset, and the prose is
+   * templated rather than written. Metrics, findings, benchmark and grade are
+   * unaffected; none of them involve a model.
+   */
+  llm_assisted: boolean;
   analyses_run: string[];
   /** [tool_name, reason] — why a tool did not run, e.g. the fleet-benchmark cap. */
   analyses_skipped: [string, string][];

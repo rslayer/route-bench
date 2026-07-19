@@ -680,6 +680,20 @@ a {
   border-radius: 0 var(--radius) var(--radius) 0; max-width: 72ch;
 }
 
+/* The solver countdown, set apart from the stage text without competing
+   with it — it is context, not the headline. */
+.progress-eta { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* Informational, not a warning: the evaluation is complete, only the prose is
+   templated. Deliberately calmer than .grade-withheld — nothing is missing
+   that the user came for. */
+.prose-templated {
+  font-size: 0.85rem; color: var(--muted); border-left: 3px solid #88CCEE;
+  padding: 0.6rem 0.9rem; background: color-mix(in srgb, #88CCEE 8%, transparent);
+  border-radius: 0 var(--radius) var(--radius) 0; max-width: 72ch;
+  margin: 0.5rem 0 1.25rem;
+}
+
 /* Shown in place of the score when travel times were estimated. Weightier than
    .geometry-warning — that one qualifies a detail, this one explains why the
    headline number a user came for is absent. */

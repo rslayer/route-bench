@@ -252,6 +252,12 @@ class AnalysisReport(BaseModel):
     # fact rather than a sentence: the wording belongs at the rendering edge, not
     # baked into a persisted artifact.
     matrix_approximate: bool = False
+    # False when this analysis ran with no LLM: every applicable tool was run
+    # rather than a model-selected subset, and the prose is filled from
+    # templates rather than written. The metrics, findings, benchmark and grade
+    # are unaffected — none of them ever involve the LLM — so this is a
+    # statement about the writing and the tool coverage, not the numbers.
+    llm_assisted: bool = True
     analyses_run: list[str]
     analyses_skipped: list[tuple[str, str]]
     metadata: dict[str, object]

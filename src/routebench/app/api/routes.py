@@ -64,13 +64,18 @@ async def create_session(
     if worker.is_full:
         raise HTTPException(status_code=429, detail="Queue is full. Try again later.")
 
-    # Check daily budget (Phase 9)
+    # A spent daily budget no longer rejects the upload.
+    #
+    # This used to raise 503 for the remainder of the UTC day, which took the
+    # whole service down over a cap on the one part of the analysis that is
+    # optional. The LLM writes the narrative and picks which analyzers to run;
+    # the metrics, findings, benchmark and grade are computed without it and
+    # cost nothing. So an exhausted budget now degrades the run — the pipeline
+    # sees it and takes the deterministic path — rather than refusing work the
+    # service can still do for free.
     budget_tracker = getattr(request.app.state, "budget_tracker", None)
     if budget_tracker is not None and await budget_tracker.is_exceeded():
-        raise HTTPException(
-            status_code=503,
-            detail="Daily budget exceeded. Service resumes at UTC midnight.",
-        )
+        logger.info("budget_exceeded_degrading", detail="running without the LLM")
 
     # Read file with size limit
     upload_data = await file.read()

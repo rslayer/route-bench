@@ -392,23 +392,39 @@ class Verifier:
 
     def _deterministic_fallback(self, slot: ProseSlot) -> str:
         """Generate a deterministic template-based fallback."""
-        data = slot.input_data
+        return deterministic_prose(slot)
 
-        if slot.slot_type == "executive_summary":
-            fm = data.get("fleet_metrics", {})
-            return (
-                f"Fleet analysis covers {fm.get('total_routes', 'N/A')} routes "
-                f"with {fm.get('total_stops', 'N/A')} stops, "
-                f"totaling {fm.get('total_distance_miles', 'N/A'):.1f} miles."
-            )
-        if slot.slot_type == "finding_explanation":
-            f = data.get("finding", {})
-            return (
-                f"Finding {f.get('finding_id', 'N/A')}: "
-                f"{f.get('title', 'N/A')} "
-                f"(severity: {f.get('severity', 'N/A')})."
-            )
-        if slot.slot_type == "investigation_priorities":
-            return "Refer to the findings list for investigation priorities."
 
-        return f"[{slot.slot_type}] — see structured data for details."
+def deterministic_prose(slot: ProseSlot) -> str:
+    """Fill a prose slot from its structured data alone, with no LLM.
+
+    Module-level rather than a verifier method because it has two callers with
+    different needs: the verifier uses it as a last resort when generated prose
+    fails checking twice, and the no-LLM path uses it for every slot up front.
+    The second caller has no client to construct a verifier with, and should
+    not have to invent one to reach a pure function.
+
+    The text is flatter than a written narrative — that is the trade. It states
+    what the findings say rather than explaining why they matter, and it cannot
+    be wrong about a number, because it only ever restates one.
+    """
+    data = slot.input_data
+
+    if slot.slot_type == "executive_summary":
+        fm = data.get("fleet_metrics", {})
+        return (
+            f"Fleet analysis covers {fm.get('total_routes', 'N/A')} routes "
+            f"with {fm.get('total_stops', 'N/A')} stops, "
+            f"totaling {fm.get('total_distance_miles', 'N/A'):.1f} miles."
+        )
+    if slot.slot_type == "finding_explanation":
+        f = data.get("finding", {})
+        return (
+            f"Finding {f.get('finding_id', 'N/A')}: "
+            f"{f.get('title', 'N/A')} "
+            f"(severity: {f.get('severity', 'N/A')})."
+        )
+    if slot.slot_type == "investigation_priorities":
+        return "Refer to the findings list for investigation priorities."
+
+    return f"[{slot.slot_type}] — see structured data for details."
