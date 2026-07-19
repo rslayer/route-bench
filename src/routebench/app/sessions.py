@@ -161,6 +161,19 @@ class SessionRegistry:
             return SessionStatus.model_validate_json(data)
         except FileNotFoundError:
             return None
+        except ValueError:
+            # A session id that escapes the storage root names no session, so
+            # None — the same answer `exists()` gives, for the same reason.
+            #
+            # `read` raises ValueError on a traversing id while `exists` returns
+            # False, so catching only FileNotFoundError here let the ValueError
+            # out of the handler as a 500. That was invisible for as long as
+            # every artifact route called `exists()` first; the moment one
+            # called `get()` first, `GET /sessions/%2e%2e/report.html` started
+            # 500ing again. Note ValidationError subclasses ValueError, so a
+            # corrupt status.json also lands here rather than escaping.
+            logger.warning("session_get_rejected_bad_id", session_id=session_id)
+            return None
 
     async def persist(self, session_id: str) -> None:
         status = self._active.get(session_id)
