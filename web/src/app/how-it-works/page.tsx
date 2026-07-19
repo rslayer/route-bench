@@ -255,9 +255,12 @@ export default function HowItWorks() {
         <div>
           <dt>Do you keep my data?</dt>
           <dd>
-            Your upload and report are held only long enough to serve them back to
-            you, then deleted on a retention schedule. There are no accounts, and
-            your session is reachable only through its unguessable link.
+            Your upload, report and map data are deleted 72 hours after the run.
+            Run metadata with no customer data in it — timing and cost — is kept
+            for 30 days. There are no accounts, your session is reachable only
+            through its unguessable link, and nothing you upload is used to train
+            anything or kept as a dataset. Full detail in the{" "}
+            <Link href="/privacy">privacy note</Link>.
           </dd>
         </div>
         <div>

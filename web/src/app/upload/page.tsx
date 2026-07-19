@@ -14,6 +14,7 @@ import { clearStagedFile, peekStagedFile } from "@/components/Dropzone";
 import RowPreview from "@/components/RowPreview";
 import { ApiError, createSession } from "@/lib/api";
 import { DEFAULT_PANEL, buildConfig, type PanelState } from "@/lib/config-builder";
+import { rememberRun } from "@/lib/runs";
 import { headersMatchSchema } from "@/lib/schema";
 import { formatBytes } from "@/lib/upload";
 
@@ -88,6 +89,9 @@ export default function UploadPage() {
     try {
       const prepared = await rewriteHeaders(file, mapping);
       const { session_id } = await createSession(prepared, buildConfig(panel));
+      // Recorded before navigating, not after: the analysis outlives the tab,
+      // and the whole point is that closing it does not lose the link.
+      rememberRun(session_id, file.name);
       // Handed off — drop it so a later visit to /upload does not silently
       // resubmit a file the user has moved on from.
       clearStagedFile();
