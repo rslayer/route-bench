@@ -7,6 +7,7 @@ import FindingsList from "@/components/FindingsList";
 import Scorecard from "@/components/Scorecard";
 import { SOLVER_DISCLAIMER } from "@/lib/constraints";
 import { routeColor } from "@/lib/palette";
+import { markRunDone } from "@/lib/runs";
 import {
   ApiError,
   getAnalysis,
@@ -66,6 +67,12 @@ export default function SessionView({ sessionId }: { sessionId: string }) {
   const [showMigrations, setShowMigrations] = useState(false);
 
   const done = status !== null && TERMINAL_STATES.has(status.state);
+
+  // Once this run lands, stop the resume banner offering it. Guarded by `done`
+  // so it fires once per terminal transition, not on every poll.
+  useEffect(() => {
+    if (done) markRunDone(sessionId);
+  }, [done, sessionId]);
 
   // --- follow the session --------------------------------------------------
   useEffect(() => {

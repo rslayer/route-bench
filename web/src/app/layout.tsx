@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Footer from "@/components/Footer";
-import ThemeToggle from "@/components/ThemeToggle";
+import ResumeBanner from "@/components/ResumeBanner";
+import SiteNav from "@/components/SiteNav";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import "./globals.css";
 
@@ -28,9 +29,8 @@ export default function RootLayout({
           Skip to content
         </a>
         <div className="page">
-          <div className="topbar">
-            <ThemeToggle />
-          </div>
+          <SiteNav />
+          <ResumeBanner />
           <main id="main">{children}</main>
           <Footer />
         </div>
