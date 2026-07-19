@@ -213,6 +213,17 @@ class Settings(BaseSettings):
     # OSRM
     osrm_host: str = "http://localhost:5000"
 
+    # Filesystem cache for OSRM matrices. Wraps OSRM only, never the fallback,
+    # so a cache hit is always a real road-network answer. Approximate results
+    # are refused by the cache itself as a second line of defence.
+    #
+    # On by default: matrix calls dominate wall-clock on repeat uploads of the
+    # same territory, and the cache key is content-addressed, so a stale entry
+    # is only possible if the road network itself changed. Point this at a
+    # persistent volume in production or it warms from cold on every deploy.
+    matrix_cache_enabled: bool = True
+    matrix_cache_path: str = "./data/matrix-cache"
+
     # Basemap tiles for the report's route images. See infra/tiles.py.
     #
     # Off by default deliberately: the default would otherwise be an outbound
