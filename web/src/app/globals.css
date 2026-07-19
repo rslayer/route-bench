@@ -680,6 +680,10 @@ a {
   border-radius: 0 var(--radius) var(--radius) 0; max-width: 72ch;
 }
 
+/* The solver countdown, set apart from the stage text without competing
+   with it — it is context, not the headline. */
+.progress-eta { color: var(--muted); font-variant-numeric: tabular-nums; }
+
 /* Informational, not a warning: the evaluation is complete, only the prose is
    templated. Deliberately calmer than .grade-withheld — nothing is missing
    that the user came for. */

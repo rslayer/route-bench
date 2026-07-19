@@ -208,8 +208,16 @@ class SessionWorker:
         """Process a single job with timeout."""
         session_id = job.session_id
 
-        async def on_progress(state: SessionState, pct: int, detail: str) -> None:
-            self._registry.update(session_id, state=state, progress_pct=pct, stage_detail=detail)
+        async def on_progress(
+            state: SessionState, pct: int, detail: str, seconds_remaining: int | None = None
+        ) -> None:
+            self._registry.update(
+                session_id,
+                state=state,
+                progress_pct=pct,
+                stage_detail=detail,
+                seconds_remaining=seconds_remaining,
+            )
             await self._registry.persist(session_id)
 
         # Write upload to temp file

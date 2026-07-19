@@ -60,6 +60,15 @@ class SessionStatus(BaseModel):
     state: SessionState = "queued"
     progress_pct: int = 0
     stage_detail: str = ""
+    # Seconds of solver budget still to be spent, or None when the remaining
+    # work is not time-boxed.
+    #
+    # Deliberately not called an estimate. OR-Tools' guided local search runs
+    # until its configured time limit rather than stopping when it converges, so
+    # for the benchmark phase this is a budget the solver WILL spend, not a
+    # guess at how long something might take. Everything outside that phase is
+    # fast and variable, and reports None rather than inventing a number.
+    seconds_remaining: int | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     error: SessionError | None = None
@@ -107,6 +116,7 @@ class SessionRegistry:
         error: SessionError | None = None,
         artifacts: SessionArtifacts | None = None,
         cost: CostSummary | None = None,
+        seconds_remaining: int | None = None,
     ) -> SessionStatus | None:
         status = self._active.get(session_id)
         if status is None:
@@ -127,6 +137,12 @@ class SessionRegistry:
             status.progress_pct = progress_pct
         if stage_detail is not None:
             status.stage_detail = stage_detail
+        # Assigned unconditionally, unlike the fields above, and that asymmetry
+        # is deliberate: every progress update knows the answer (a number during
+        # the solver phase, None outside it), and every terminal update SHOULD
+        # clear it — a finished session has no remaining time. Treating None as
+        # "leave alone" here would strand a stale countdown on a completed run.
+        status.seconds_remaining = seconds_remaining
         if error is not None:
             status.error = error
         if artifacts is not None:

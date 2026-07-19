@@ -133,8 +133,21 @@ export function stageFile(file: File): void {
   staged = file;
 }
 
-export function takeStagedFile(): File | null {
-  const file = staged;
+/**
+ * The staged file, WITHOUT consuming it.
+ *
+ * This used to be `takeStagedFile`, which nulled `staged` as it read. That made
+ * the reader non-idempotent, and React StrictMode double-invokes effects in
+ * development precisely to surface that: the first pass took the file, the
+ * second got null, and /upload rendered "No file chosen" for a file the user
+ * had just picked. Reading is now a pure observation; consuming is a separate,
+ * explicit act — see clearStagedFile.
+ */
+export function peekStagedFile(): File | null {
+  return staged;
+}
+
+/** Drop the staged file. Called once the upload has actually been handed off. */
+export function clearStagedFile(): void {
   staged = null;
-  return file;
 }

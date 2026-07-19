@@ -316,7 +316,41 @@ function Waiting({ label }: { label: string }) {
   );
 }
 
+/**
+ * Counts the solver budget down between polls.
+ *
+ * The server only speaks every few seconds, so without a local tick the number
+ * would sit still and then jump — which reads as a stall during the exact phase
+ * this exists to make legible. Resets whenever the server sends a new figure,
+ * so the server always wins and local drift cannot accumulate.
+ */
+function useCountdown(seconds: number | null): number | null {
+  const [remaining, setRemaining] = useState<number | null>(seconds);
+
+  useEffect(() => {
+    setRemaining(seconds);
+    if (seconds === null) return;
+    const id = setInterval(() => {
+      // Floor at zero rather than going negative: the budget is a ceiling the
+      // solver may finish under, so "0s" honestly means "any moment now".
+      setRemaining((r) => (r === null ? null : Math.max(0, r - 1)));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [seconds]);
+
+  return remaining;
+}
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return s === 0 ? `${m}m` : `${m}m ${s}s`;
+}
+
 function Progress({ status }: { status: SessionStatus }) {
+  const remaining = useCountdown(status.seconds_remaining ?? null);
+
   return (
     <div className="container progress-page">
       <h1>Analysing your routes</h1>
@@ -333,7 +367,17 @@ function Progress({ status }: { status: SessionStatus }) {
         <span style={{ width: `${Math.max(2, status.progress_pct)}%` }} />
       </div>
 
-      <p className="progress-detail">{status.stage_detail}</p>
+      <p className="progress-detail">
+        {status.stage_detail}
+        {remaining !== null ? (
+          // "at most", because the figure is a solver budget rather than a
+          // prediction — the run can finish early but will not overrun it.
+          <span className="progress-eta">
+            {" · "}
+            {remaining > 0 ? `at most ${formatDuration(remaining)} left` : "finishing up"}
+          </span>
+        ) : null}
+      </p>
       <p className="dim-note">
         This page keeps itself up to date. The link is yours — you can close the tab and come
         back to it.

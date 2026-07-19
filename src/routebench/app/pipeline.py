@@ -75,7 +75,9 @@ class SessionResult:
     error_message: str | None = None
 
 
-ProgressCallback = Callable[[SessionState, int, str], Awaitable[None]]
+# The 4th argument is the solver budget still to be spent, or None when the
+# remaining work is not time-boxed. See SessionStatus.seconds_remaining.
+ProgressCallback = Callable[[SessionState, int, str, int | None], Awaitable[None]]
 
 
 async def run_session(
@@ -88,9 +90,11 @@ async def run_session(
 ) -> SessionResult:
     """Run the full pipeline: validate -> orchestrate -> write -> verify -> render -> persist."""
 
-    async def _emit(state: SessionState, pct: int, detail: str) -> None:
+    async def _emit(
+        state: SessionState, pct: int, detail: str, seconds_remaining: int | None = None
+    ) -> None:
         if on_progress is not None:
-            await on_progress(state, pct, detail)
+            await on_progress(state, pct, detail, seconds_remaining)
 
     session_telemetry = telemetry or Telemetry(session_id=session_id)
     max_input_tokens = deps.settings.max_input_tokens_per_session
@@ -163,12 +167,35 @@ async def run_session(
                 reason="daily budget spent; running the deterministic analysis",
             )
 
+        # Bridge the orchestrator's progress back onto the event loop.
+        #
+        # orchestrator.run is synchronous and runs in a worker thread, while the
+        # progress callback is async — which is why this stage used to be one
+        # opaque await. It reported 15% on the way in and nothing again until
+        # 45%, so the longest phase of the run (the solvers, minutes of it) was
+        # completely dark to the user.
+        #
+        # run_coroutine_threadsafe is the supported way across that boundary.
+        # Fire and forget: a dropped progress tick must never break an analysis,
+        # so failures are logged and swallowed rather than raised into the
+        # solver thread.
+        loop = asyncio.get_running_loop()
+
+        def _emit_from_thread(pct: int, detail: str, seconds_remaining: int | None) -> None:
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    _emit("analyzing", pct, detail, seconds_remaining), loop
+                )
+            except Exception:
+                logger.warning("progress_emit_failed", session_id=session_id, detail=detail)
+
         orchestrator = AnalysisOrchestrator(
             client=deps.llm_client,
             config=config,
             matrix_provider=matrix_provider,
             telemetry=session_telemetry,
             llm_available=llm_available,
+            on_progress=_emit_from_thread,
         )
         analysis = await asyncio.to_thread(orchestrator.run, fleet)
         _check_token_cap()

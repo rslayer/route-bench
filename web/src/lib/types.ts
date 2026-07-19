@@ -59,6 +59,14 @@ export interface SessionStatus {
   state: SessionState;
   progress_pct: number;
   stage_detail: string;
+  /**
+   * Seconds of solver budget still to be spent, or null when the remaining
+   * work is not time-boxed. Not an estimate: OR-Tools runs to its configured
+   * limit rather than stopping when it converges, so during the benchmark
+   * phase this is a budget the solver WILL spend. Null everywhere else,
+   * because those phases are fast and variable and a number would be made up.
+   */
+  seconds_remaining: number | null;
   created_at: string;
   updated_at: string;
   error: SessionError | null;

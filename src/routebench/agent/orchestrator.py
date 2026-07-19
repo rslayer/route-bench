@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,47 @@ from routebench.infra.telemetry import Telemetry
 logger: structlog.stdlib.BoundLogger = structlog.get_logger()
 
 MAX_TURNS = 12
+
+# The analysis stage owns this slice of the overall progress bar; the pipeline
+# reports 15% on entry and 45% on exit.
+_ANALYZE_START_PCT = 15
+_ANALYZE_END_PCT = 45
+
+# Nominal cost of a non-benchmark analyzer, in seconds. They are effectively
+# instant next to the solvers, but a weight of zero would make them invisible on
+# the bar — six of them would advance it not at all, and the user would watch a
+# stalled bar through the fast half of the run.
+_FAST_TOOL_SECONDS = 1.0
+
+# Names are wire identifiers; these are what a person should read.
+_TOOL_LABELS: dict[str, str] = {
+    "analyze_sequencing": "Checking stop order",
+    "analyze_time_pressure": "Checking time pressure",
+    "analyze_outliers": "Looking for outliers",
+    "analyze_territory": "Comparing territories",
+    "analyze_dispatch": "Checking dispatch balance",
+    "analyze_compliance": "Checking shift compliance",
+    "route_benchmark": "Re-solving each route",
+    "fleet_benchmark": "Re-solving the whole fleet",
+}
+
+
+def _tool_label(name: str) -> str:
+    return _TOOL_LABELS.get(name, name.replace("_", " ").capitalize())
+
+
+# (percent_complete, human detail, seconds of solver budget left or None)
+ProgressReporter = Callable[[int, str, int | None], None]
+
+
+def _humanize_seconds(seconds: float) -> str:
+    """A rough duration a person can read: '4m 30s', '45s'."""
+    total = round(seconds)
+    if total < 60:
+        return f"{total}s"
+    minutes, secs = divmod(total, 60)
+    return f"{minutes}m" if secs == 0 else f"{minutes}m {secs}s"
+
 
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 
@@ -68,8 +110,13 @@ class AnalysisOrchestrator:
         matrix_provider: MatrixProvider | None = None,
         telemetry: Telemetry | None = None,
         llm_available: bool | None = None,
+        on_progress: ProgressReporter | None = None,
     ) -> None:
         self._client = client
+        # Synchronous by design: this class runs in a worker thread, so it
+        # cannot await. The pipeline supplies a shim that marshals each call
+        # back onto the event loop.
+        self._on_progress = on_progress
         # Whether to use the LLM for this run. Defaults to whether the client
         # could reach the API at all; a caller passes False to withhold it for a
         # reason the client cannot know — a spent daily budget, most obviously.
@@ -182,10 +229,14 @@ class AnalysisOrchestrator:
                 reason="no LLM available; running every applicable tool",
                 tools=[t.name for t in available_tools],
             )
-            for tool in available_tools:
-                self._invoke_tool(
-                    tool, fleet, per_route_matrices, benchmark_sink, findings, analyses_run
-                )
+            self._run_tools_deterministically(
+                available_tools,
+                fleet,
+                per_route_matrices,
+                benchmark_sink,
+                findings,
+                analyses_run,
+            )
             return self._build_report(
                 fleet,
                 fleet_metrics,
@@ -294,6 +345,82 @@ class AnalysisOrchestrator:
             skipped,
             self._assemble_benchmark(benchmark_sink),
         )
+
+    def _expected_seconds(self, tool: AnalysisTool, fleet: Fleet) -> float:
+        """How long this tool will take, in seconds.
+
+        Not a guess for the two that matter. OR-Tools' guided local search runs
+        until its configured time limit rather than stopping when it converges,
+        so a benchmark tool spends its budget in full every time — which makes
+        this a schedule, not an estimate. The per-route limit is paid once per
+        route; the fleet limit once.
+        """
+        if getattr(tool, "requires_fleet_matrix", False):
+            return float(self._config.fleet_benchmark_time_limit_s)
+        if getattr(tool, "is_benchmark", False):
+            return float(len(fleet.routes) * self._config.route_benchmark_time_limit_s)
+        return _FAST_TOOL_SECONDS
+
+    def _report(self, pct: int, detail: str, seconds_remaining: int | None = None) -> None:
+        if self._on_progress is None:
+            return
+        self._on_progress(pct, detail, seconds_remaining)
+
+    def _run_tools_deterministically(
+        self,
+        tools: list[AnalysisTool],
+        fleet: Fleet,
+        per_route_matrices: dict[str, MatrixResult],
+        benchmark_sink: dict[str, object],
+        findings: list[Finding],
+        analyses_run: list[str],
+    ) -> None:
+        """Run every tool in order, reporting progress as it goes.
+
+        The bar advances by expected DURATION rather than by tool count. Six of
+        these eight finish in milliseconds and two run for minutes, so counting
+        tools would race the bar to 75% and then park it there for the whole
+        wait — the precise impression the progress work exists to remove.
+        """
+        costs = [self._expected_seconds(t, fleet) for t in tools]
+        total = sum(costs) or 1.0
+        spent = 0.0
+
+        def solver_seconds_from(index: int) -> int | None:
+            """Solver budget still ahead, counting from `index` onward.
+
+            None once no benchmark remains: the fast analyzers finish in
+            milliseconds and vary, so a countdown over them would be an
+            invention. Better to show nothing than a number we made up.
+            """
+            remaining = sum(
+                c
+                for i, (t, c) in enumerate(zip(tools, costs, strict=True))
+                if i >= index and getattr(t, "is_benchmark", False)
+            )
+            return round(remaining) if remaining > 0 else None
+
+        def pct_at(seconds_spent: float) -> int:
+            span = _ANALYZE_END_PCT - _ANALYZE_START_PCT
+            return _ANALYZE_START_PCT + int(span * (seconds_spent / total))
+
+        for i, (tool, cost) in enumerate(zip(tools, costs, strict=True)):
+            detail = _tool_label(tool.name)
+            if getattr(tool, "is_benchmark", False):
+                detail += f" — up to {_humanize_seconds(cost)}"
+            self._report(pct_at(spent), detail, solver_seconds_from(i))
+
+            self._invoke_tool(
+                tool, fleet, per_route_matrices, benchmark_sink, findings, analyses_run
+            )
+
+            spent += cost
+            n = len(findings)
+            self._report(
+                pct_at(spent),
+                f"{n} finding{'' if n == 1 else 's'} so far",
+                solver_seconds_from(i + 1),
+            )
 
     def _invoke_tool(
         self,
