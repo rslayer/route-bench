@@ -13,7 +13,20 @@ from routebench.infra.storage.base import StorageBackend
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger()
 
-_ARTIFACT_FILES = ("report.html", "report.pdf", "analysis.json", "upload.csv")
+# Everything that carries customer data: the raw upload, the rendered reports,
+# the analysis (stop-level detail) and the GeoJSON (stop coordinates). All of it
+# goes at the session TTL.
+#
+# `status.json` and `telemetry.json` deliberately survive to the longer
+# telemetry TTL. Status lets an expired link say so instead of 404ing, and
+# telemetry is token counts and costs — no customer data in either.
+_ARTIFACT_FILES = (
+    "report.html",
+    "report.pdf",
+    "analysis.json",
+    "routes.geojson",
+    "upload.csv",
+)
 
 _TERMINAL_STATES = frozenset({"succeeded", "failed", "expired"})
 
@@ -136,20 +149,36 @@ class RetentionJob:
 
                 if now - updated_at > self._session_ttl:
                     if now - updated_at <= self._telemetry_ttl:
-                        # Delete heavy artifacts but keep telemetry + status
+                        # Artifacts first, status second. If this process dies
+                        # midway, a session whose data is gone but still reads
+                        # "succeeded" is the recoverable failure — the next
+                        # sweep re-expires it. The reverse order would leave a
+                        # session marked expired while its upload sat on disk,
+                        # which is the state this whole function exists to
+                        # prevent and which nothing would ever revisit.
+                        deleted = 0
                         for fname in _ARTIFACT_FILES:
                             try:
-                                if await self._storage.exists(sid, fname):
-                                    # For local storage, delete individually isn't on the protocol
-                                    # Mark as expired in status instead
-                                    pass
+                                if await self._storage.delete_file(sid, fname):
+                                    deleted += 1
                             except Exception:
-                                pass
+                                # One unreadable artifact must not strand the
+                                # other four, or the session it belongs to.
+                                logger.exception(
+                                    "retention_artifact_delete_failed",
+                                    session_id=sid,
+                                    filename=fname,
+                                )
                         status["state"] = "expired"
                         await self._storage.write(
                             sid,
                             "status.json",
                             json.dumps(status, default=str).encode(),
+                        )
+                        logger.info(
+                            "session_expired",
+                            session_id=sid,
+                            artifacts_deleted=deleted,
                         )
                     else:
                         # Past telemetry TTL — delete entire session

@@ -33,6 +33,19 @@ class StorageBackend(Protocol):
         """Generate a pre-signed GET URL. For local backend, returns a relative path."""
         ...
 
+    async def delete_file(self, session_id: str, filename: str) -> bool:
+        """Delete a single artifact. Returns True if it existed and was removed.
+
+        Distinct from `delete_session` because retention expires a session in two
+        stages: the heavy artifacts (and the raw upload) go at the session TTL,
+        while status and telemetry survive to the longer telemetry TTL so the
+        session can still answer "this existed and expired" rather than 404ing.
+
+        Missing is not an error — retention runs repeatedly over the same
+        sessions and must be idempotent.
+        """
+        ...
+
     async def delete_session(self, session_id: str) -> None:
         """Delete all artifacts for a session."""
         ...

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -201,6 +203,68 @@ class TestReportDownload:
         """Missing PDF should return 404."""
         resp = app.get("/sessions/nonexistent/report.pdf")
         assert resp.status_code == 404
+
+    @pytest.mark.parametrize(
+        "artifact",
+        ["report.html", "report.pdf", "analysis.json", "routes.geojson"],
+    )
+    def test_expired_session_refuses_every_artifact(
+        self, app: TestClient, settings: Settings, artifact: str
+    ) -> None:
+        """An expired session serves nothing, even if the bytes are still there.
+
+        Retention deletes the artifacts, so in practice these 404 anyway. This
+        pins the guard independently of that, because the two used to be the
+        same check: every route asked only `exists()`, so for as long as a file
+        survived on disk an expired session kept serving it. Writing the file
+        back after expiry reproduces exactly that state.
+        """
+        storage = LocalStorageBackend(base_path=settings.storage_path)
+        old = (datetime.now(UTC) - timedelta(hours=100)).isoformat()
+        asyncio.run(
+            storage.write(
+                "expired-session",
+                "status.json",
+                json.dumps(
+                    {
+                        "session_id": "expired-session",
+                        "state": "expired",
+                        "created_at": old,
+                        "updated_at": old,
+                    }
+                ).encode(),
+            )
+        )
+        asyncio.run(storage.write("expired-session", artifact, b"leftover bytes"))
+
+        resp = app.get(f"/sessions/expired-session/{artifact}")
+        assert resp.status_code == 410
+        assert b"leftover bytes" not in resp.content
+        assert "expired" in resp.json()["detail"].lower()
+
+    def test_live_session_still_serves_artifacts(self, app: TestClient, settings: Settings) -> None:
+        """The guard must not break the ordinary case."""
+        storage = LocalStorageBackend(base_path=settings.storage_path)
+        now = datetime.now(UTC).isoformat()
+        asyncio.run(
+            storage.write(
+                "live-session",
+                "status.json",
+                json.dumps(
+                    {
+                        "session_id": "live-session",
+                        "state": "succeeded",
+                        "created_at": now,
+                        "updated_at": now,
+                    }
+                ).encode(),
+            )
+        )
+        asyncio.run(storage.write("live-session", "report.html", b"<html>hi</html>"))
+
+        resp = app.get("/sessions/live-session/report.html")
+        assert resp.status_code == 200
+        assert b"<html>hi</html>" in resp.content
 
 
 class TestHealthz:

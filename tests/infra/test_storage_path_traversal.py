@@ -21,6 +21,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from routebench.app.api.app import create_app
+from routebench.app.sessions import SessionRegistry
 from routebench.core.config import Settings
 from routebench.infra.storage.local import LocalStorageBackend
 
@@ -147,3 +148,67 @@ class TestDeleteSessionCannotEscape:
         asyncio.run(storage.write("doomed", "f.txt", b"x"))
         asyncio.run(storage.delete_session("doomed"))
         assert asyncio.run(storage.exists("doomed", "f.txt")) is False
+
+
+class TestRegistryLookupCannotEscape:
+    """`SessionRegistry.get` reads status.json, so it is a traversal door too.
+
+    It caught only FileNotFoundError, while a traversing id makes `read` raise
+    ValueError. That was harmless for exactly as long as every artifact route
+    happened to call `exists()` (which returns False) before `get()`. Adding an
+    expiry check that calls `get()` first turned `GET /sessions/%2e%2e/report.html`
+    back into a 500 — the same URL from robustness run 3, reopened by a change
+    nowhere near the original fix.
+
+    That is the third instance of this root cause in this codebase, so it gets
+    a test at the registry rather than only at the route.
+    """
+
+    def test_traversing_id_returns_none_not_valueerror(self, storage: LocalStorageBackend) -> None:
+        registry = SessionRegistry(storage)
+        for bad_id in ("../..", "%2e%2e", "/etc", "../../SECRET"):
+            assert asyncio.run(registry.get(bad_id)) is None
+
+    def test_artifact_route_with_traversing_id_is_404_not_500(self, tmp_path: Path) -> None:
+        settings = Settings(
+            storage_path=str(tmp_path / "sessions"),
+            anthropic_api_key="test-key",
+            admin_token="test-admin-token",
+            storage_backend="local",
+        )
+        client = TestClient(create_app(settings=settings), raise_server_exceptions=False)
+        for artifact in ("report.html", "report.pdf", "analysis.json", "routes.geojson"):
+            resp = client.get(f"/sessions/%2e%2e/{artifact}")
+            assert resp.status_code == 404, f"{artifact} leaked a {resp.status_code}"
+
+
+class TestDeleteFileCannotEscape:
+    """`delete_file` is the newest door onto the same hole, and it unlinks.
+
+    Softer than `delete_session` — it removes one file rather than a tree — but
+    it is called in a loop by the retention job over every session in storage,
+    so a raise here would abort the sweep for everything after it. Hence False
+    rather than an exception, matching `exists`.
+    """
+
+    def test_traversing_filename_cannot_unlink_outside_root(
+        self, storage: LocalStorageBackend, outside_file: Path
+    ) -> None:
+        assert asyncio.run(storage.delete_file("s1", "../../SECRET.txt")) is False
+        assert outside_file.exists(), "delete_file unlinked a file outside the storage root"
+
+    def test_traversing_session_id_cannot_unlink_outside_root(
+        self, storage: LocalStorageBackend, outside_file: Path
+    ) -> None:
+        assert asyncio.run(storage.delete_file("../..", "SECRET.txt")) is False
+        assert outside_file.exists()
+
+    def test_missing_file_is_false_not_an_error(self, storage: LocalStorageBackend) -> None:
+        """Retention re-sweeps expired sessions hourly; the second pass finds
+        nothing and must not raise."""
+        assert asyncio.run(storage.delete_file("nope", "nothing.txt")) is False
+
+    def test_real_file_is_deleted_and_reported(self, storage: LocalStorageBackend) -> None:
+        asyncio.run(storage.write("s1", "upload.csv", b"x"))
+        assert asyncio.run(storage.delete_file("s1", "upload.csv")) is True
+        assert asyncio.run(storage.exists("s1", "upload.csv")) is False

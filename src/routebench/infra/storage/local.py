@@ -135,6 +135,28 @@ class LocalStorageBackend:
     async def presigned_url(self, session_id: str, filename: str, ttl_seconds: int = 900) -> str:
         return f"/sessions/{session_id}/{filename}"
 
+    async def delete_file(self, session_id: str, filename: str) -> bool:
+        def _delete_file() -> bool:
+            try:
+                p = self._session_file(session_id, filename)
+            except ValueError:
+                # Same reasoning as `exists`: a traversing path names nothing we
+                # own, so there is nothing to delete. Refusing quietly beats
+                # letting a ValueError escape the retention loop and abort the
+                # sweep for every session after this one.
+                logger.warning(
+                    "storage_path_escape_rejected",
+                    session_id=session_id,
+                    filename=filename,
+                )
+                return False
+            if not p.exists():
+                return False
+            p.unlink()
+            return True
+
+        return await asyncio.to_thread(_delete_file)
+
     async def delete_session(self, session_id: str) -> None:
         def _delete() -> None:
             # Confined before rmtree, not after: unguarded, a traversing id
