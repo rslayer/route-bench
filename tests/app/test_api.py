@@ -7,6 +7,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -25,6 +26,15 @@ def _make_valid_csv() -> bytes:
         "R-001,3,32.840,-96.760",
     ]
     return "\n".join(lines).encode()
+
+
+def _patch_osrm_probe(monkeypatch: pytest.MonkeyPatch, response: object) -> None:
+    """Make healthz's OSRM probe return `response` without a network call."""
+
+    async def _get(*args: object, **kwargs: object) -> object:
+        return response
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", _get)
 
 
 @pytest.fixture()
@@ -277,3 +287,62 @@ class TestHealthz:
         assert "status" in body
         assert "checks" in body
         assert "storage_writable" in body["checks"]
+
+    def test_osrm_error_response_still_counts_as_reachable(
+        self, app: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An OSRM that answers with an error is up, and must read as up.
+
+        OSRM returns HTTP 400 for several conditions that say nothing about
+        health — the probe coordinate being unroutable, or its URL grammar
+        rejecting the request outright. Judging on `status_code == 200` turned
+        those into "degraded", which 503s the readiness probe and takes a
+        healthy deployment out of rotation.
+        """
+
+        class _ErrorResponse:
+            status_code = 400
+
+            @staticmethod
+            def json() -> dict[str, str]:
+                return {"code": "InvalidUrl", "message": "URL string malformed"}
+
+        _patch_osrm_probe(monkeypatch, _ErrorResponse())
+
+        body = app.get("/healthz").json()
+        assert body["checks"]["osrm_reachable"] is True
+        assert body["matrix_mode"] == "osrm"
+        assert body["grade_available"] is True
+
+    def test_unreachable_osrm_reports_the_consequence(
+        self, app: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Down means degraded, and healthz says what that costs the user."""
+
+        def _boom(*args: object, **kwargs: object) -> object:
+            raise OSError("connection refused")
+
+        monkeypatch.setattr(httpx.AsyncClient, "get", _boom)
+
+        resp = app.get("/healthz")
+        body = resp.json()
+        assert resp.status_code == 503
+        assert body["checks"]["osrm_reachable"] is False
+        assert body["matrix_mode"] == "haversine_estimates"
+        assert body["grade_available"] is False
+
+    def test_non_json_body_is_not_reachable(
+        self, app: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A proxy's HTML error page in front of a cold container is not OSRM."""
+
+        class _HtmlResponse:
+            status_code = 502
+
+            @staticmethod
+            def json() -> dict[str, str]:
+                raise ValueError("not json")
+
+        _patch_osrm_probe(monkeypatch, _HtmlResponse())
+
+        assert app.get("/healthz").json()["checks"]["osrm_reachable"] is False

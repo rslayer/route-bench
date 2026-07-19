@@ -57,41 +57,53 @@ cp .env.example .env
 
 RouteBench uses a self-hosted OSRM instance for driving distance/time matrices.
 
+**Without OSRM, RouteBench still runs but withholds the grade.** Travel times fall
+back to straight-line estimates with a 1.3 detour factor, every number is labelled
+approximate, and the scorecard shows "Withheld" instead of a letter. That is a
+deliberate floor, not a substitute — a grade computed on estimated distances would
+look authoritative and be wrong.
+
 ### One-time data preparation
 
-Download a regional extract from [Geofabrik](https://download.geofabrik.de/) (start with Texas):
-
 ```bash
-mkdir -p osrm-data
-cd osrm-data
-
-# Download the extract
-wget https://download.geofabrik.de/north-america/us/texas-latest.osm.pbf
-
-# Pre-process the data (this takes a few minutes)
-docker run -t -v $(pwd):/data osrm/osrm-backend osrm-extract -p /opt/car.lua /data/texas-latest.osm.pbf
-docker run -t -v $(pwd):/data osrm/osrm-backend osrm-partition /data/texas-latest.osrm
-docker run -t -v $(pwd):/data osrm/osrm-backend osrm-customize /data/texas-latest.osrm
-
-# Rename to the expected filename
-mv texas-latest.osrm region.osrm
-# Also rename all associated files
-for f in texas-latest.osrm.*; do mv "$f" "region.osrm.${f#texas-latest.osrm.}"; done
-
-cd ..
+scripts/bootstrap_osrm.sh              # Texas, the sample fleet's region
+scripts/bootstrap_osrm.sh california
+scripts/bootstrap_osrm.sh --url https://download.geofabrik.de/europe/monaco-latest.osm.pbf
 ```
+
+The script downloads a [Geofabrik](https://download.geofabrik.de/) extract, runs
+`osrm-extract` → `osrm-partition` → `osrm-customize`, and writes `OSRM_REGION` to
+`.env`. It is resumable: an interrupted download is discarded rather than left
+looking complete, and it exits early if the graph is already built.
+
+Budget for it. A US state extract is 0.5–1.5 GB to download, `osrm-extract` wants
+roughly as much RAM as the `.pbf` is large, and the whole pipeline takes 5–20
+minutes. Use a metro-sized extract from [BBBike](https://extract.bbbike.org/) if
+you only need one city.
 
 ### Start OSRM
 
 ```bash
-docker compose up osrm
+docker compose up -d osrm
 ```
 
-Verify it's running:
+Verify — this should return a `durations` matrix, not an error:
 
 ```bash
-curl "http://localhost:5000/table/v1/driving/-97.7431,30.2672;-96.7970,32.7767"
+curl -s "http://localhost:5000/table/v1/driving/-96.797,32.777;-96.780,32.800"
 ```
+
+`docker compose up app` waits for OSRM's healthcheck, because OSRM accepts
+connections for several seconds before its graph is queryable. Starting the app
+too early means its first matrix call fails and the run quietly degrades to
+estimates.
+
+### Sizing note
+
+`--max-table-size` must exceed the largest matrix requested, which is the fleet
+benchmark at `(total stops + depots)²`. The default 10000 covers 100 locations.
+Exceed it and OSRM returns `TooBig`, which the fallback catches — so the symptom
+is a withheld grade rather than an error.
 
 ## Run the API Server
 
