@@ -74,7 +74,10 @@ class CachedMatrixProvider:
     def __init__(self, backend: MatrixProvider, cache_dir: Path) -> None:
         self.backend = backend
         self.cache_dir = cache_dir
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        # Created on first write, not here. Constructing the app should not
+        # touch the filesystem: create_app runs in every test and would leave a
+        # cache directory in whatever the working directory happened to be,
+        # and a deployment that never fetches a matrix has no reason to have one.
         self.name = f"cached_{backend.name}"
 
     def _backend_profile_hash(self) -> str | None:
@@ -118,6 +121,13 @@ class CachedMatrixProvider:
                 provider=data["provider"],
                 cached=True,
                 cost_estimate=data.get("cost_estimate", 0.0),
+                # Defaults False, which is only safe because approximate results
+                # are never written (below). Read back explicitly anyway: an
+                # entry written by an older build predates that rule, and a
+                # cached estimate returning as exact would republish the grade
+                # on estimated times — the precise outcome grade-withholding
+                # exists to prevent.
+                approximate=data.get("approximate", False),
             )
 
         logger.info("matrix_cache_miss", key=key[:12])
@@ -125,13 +135,24 @@ class CachedMatrixProvider:
             origins, destinations, departure_time, origin_departure_times
         )
 
-        # Write to cache
+        if result.approximate:
+            # Deliberately not cached. The cache exists to spare the real
+            # routing engine, and an approximate result means that engine was
+            # down. Persisting the fallback would let a few seconds of OSRM
+            # downtime serve haversine estimates for the whole cache lifetime,
+            # long after OSRM recovered, with no signal that anything was wrong.
+            # Better to re-ask and get the real answer once it can.
+            logger.info("matrix_cache_skip_approximate", key=key[:12], provider=result.provider)
+            return result
+
         cache_data = {
             "durations_seconds": result.durations_seconds,
             "distances_meters": result.distances_meters,
             "provider": result.provider,
             "cost_estimate": result.cost_estimate,
+            "approximate": result.approximate,
         }
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
         cache_path.write_text(json.dumps(cache_data))
 
         return MatrixResult(
@@ -140,4 +161,5 @@ class CachedMatrixProvider:
             provider=result.provider,
             cached=False,
             cost_estimate=result.cost_estimate,
+            approximate=result.approximate,
         )

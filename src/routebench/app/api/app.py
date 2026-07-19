@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import structlog
 from fastapi import FastAPI
@@ -23,6 +24,8 @@ from routebench.app.telemetry_sink import TelemetrySink
 from routebench.app.worker import SessionWorker
 from routebench.core.config import Settings
 from routebench.core.version import package_version
+from routebench.infra.matrix.base import MatrixProvider
+from routebench.infra.matrix.cache import CachedMatrixProvider
 from routebench.infra.matrix.fallback import FallbackMatrixProvider
 from routebench.infra.matrix.haversine import HaversineMatrixProvider
 from routebench.infra.matrix.osrm import OSRMMatrixProvider
@@ -101,9 +104,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # OSRM meant every upload was accepted with a 202 and then died at 15%. The
     # haversine fallback keeps the site answering with clearly-labelled
     # estimates, and the pipeline withholds the quality grade when it sees them.
+    #
+    # The cache wraps OSRM and sits *inside* the fallback, not outside it. That
+    # ordering matters: a cache above the fallback would happily store haversine
+    # estimates, so a brief OSRM outage would serve them for the cache lifetime
+    # long after OSRM recovered. Here, an OSRM failure raises straight through
+    # the cache to the fallback and nothing approximate is ever written.
+    osrm: MatrixProvider = OSRMMatrixProvider(host=settings.osrm_host)
+    if settings.matrix_cache_enabled:
+        osrm = CachedMatrixProvider(backend=osrm, cache_dir=Path(settings.matrix_cache_path))
     matrix_provider = FallbackMatrixProvider(
-        primary=OSRMMatrixProvider(host=settings.osrm_host),
+        primary=osrm,
         fallback=HaversineMatrixProvider(),
+    )
+    logger.info(
+        "matrix_provider_configured",
+        provider=matrix_provider.name,
+        cache_enabled=settings.matrix_cache_enabled,
     )
     llm_client = LLMClient(api_key=settings.anthropic_api_key, model=settings.claude_model)
 
@@ -226,8 +243,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(admin_router)
 
     # Serve sample reports as static files
-    from pathlib import Path
-
     samples_dir = Path(__file__).parent.parent.parent.parent / "data" / "samples"
     if samples_dir.exists():
         app.mount("/samples", StaticFiles(directory=str(samples_dir)), name="samples")
