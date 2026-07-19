@@ -24,3 +24,6 @@ web/next-env.d.ts
 web/*.tsbuildinfo
 web/playwright-report/
 web/test-results/
+
+# macOS
+.DS_Store
