@@ -117,6 +117,27 @@ def validate_csv(
             summary={"total_rows": len(df)},
         )
 
+    # A header row with no data rows has the required columns, so it passes the
+    # check above, produces zero routes, and used to be accepted — the analysis
+    # then "succeeded" on an empty fleet and rendered an empty report, which
+    # reads as a broken result rather than the mistake it is. Reject it at the
+    # door with a clear message, like every other malformed upload.
+    if df.height == 0:
+        return None, ValidationReport(
+            is_valid=False,
+            errors=[
+                ValidationError(
+                    row=None,
+                    column=None,
+                    code="NO_DATA_ROWS",
+                    message="The file has a header but no rows. Add at least one route.",
+                )
+            ],
+            warnings=warnings,
+            defaults_applied=defaults_applied,
+            summary={"total_rows": 0},
+        )
+
     # Reject a fractional stop_sequence before casting. `cast(pl.Int64)` on a
     # float column truncates silently rather than raising, so "0.9" became 0 -
     # and 0 is what marks the depot. A typo'd sequence quietly promoted a
