@@ -163,16 +163,42 @@ async def run_session(
                 session_id=session_id,
                 reason="daily matrix spend cap reached; running on straight-line estimates",
             )
-        elif config.traffic.is_active:
-            # Not banded when degraded: a traffic profile over haversine would
-            # multiply straight-line estimates AND (via apply_row_factors) drop
-            # the approximate flag, which would wrongly publish a grade.
+        elif config.traffic.is_active and not getattr(deps.matrix_provider, "is_time_aware", False):
+            # Band ONLY a free-flow engine (OSRM). A time-aware engine (Google)
+            # already returns live-traffic durations, so multiplying them by the
+            # band factor would double-count congestion — and would grade the
+            # plan on doubly-penalised times — while the two-pass banding also
+            # re-fetches every matrix at a different departure time, doubling the
+            # metered spend. The config documents this invariant; enforce it here.
+            #
+            # (Not banded when degraded to haversine either: the branch above
+            # already substituted a bare provider.)
             matrix_provider = TrafficAdjustedProvider(deps.matrix_provider, config.traffic)
             logger.info(
                 "traffic_profile_active",
                 session_id=session_id,
                 profile_hash=config.traffic.profile_hash(),
                 n_bands=len(config.traffic.bands),
+            )
+
+        # Reserve this run's estimated matrix spend against the daily cap BEFORE
+        # the run, not after. Google is billed during the analysis (the scorecard
+        # fetches every route matrix up front), so recording only on success let
+        # a run that billed and then failed — a multi-depot fleet that errors in
+        # the fleet benchmark, say — escape the cap entirely. Reserving up front
+        # counts the spend the moment we commit to the metered engine. Only when
+        # this run will actually use it: a budget-degraded run spends nothing
+        # more, and free engines cost nothing. The estimate is the no-cache worst
+        # case (see estimate_run_cost_usd), keeping the cap conservative.
+        if (
+            not matrix_budget_exceeded
+            and deps.settings.matrix_engine == "google"
+            and deps.matrix_budget_tracker is not None
+            and deps.matrix_budget_tracker.daily_budget > 0
+        ):
+            await deps.matrix_budget_tracker.record_spend(
+                estimate_run_cost_usd(fleet, config.include_benchmark),
+                session_id=session_id,
             )
 
         # Decide once whether the LLM may be used for this run, and let both the
@@ -230,21 +256,12 @@ async def run_session(
         analysis = await asyncio.to_thread(orchestrator.run, fleet)
         _check_token_cap()
 
-        # Record this run's estimated matrix spend against the daily cap, so a
-        # later run the same UTC day sees it. Only when the run actually used the
-        # metered engine — a run already degraded for budget spent nothing more,
-        # and free engines cost nothing. The estimate is the no-cache worst case
-        # (see estimate_run_cost_usd), which keeps the cap conservative.
-        if (
-            not matrix_budget_exceeded
-            and deps.settings.matrix_engine == "google"
-            and deps.matrix_budget_tracker is not None
-            and deps.matrix_budget_tracker.daily_budget > 0
-        ):
-            await deps.matrix_budget_tracker.record_spend(
-                estimate_run_cost_usd(fleet, config.include_benchmark),
-                session_id=session_id,
-            )
+        # Say WHY the matrix was approximate, so the report can tell the truth
+        # rather than always blaming an outage. If we degraded this run for the
+        # spend cap, that is the reason; otherwise an approximate result means the
+        # engine was actually unreachable.
+        if analysis.matrix_approximate:
+            analysis.matrix_approximate_reason = "budget" if matrix_budget_exceeded else "outage"
 
         await _emit("analyzing", 45, f"Analysis complete: {len(analysis.findings)} findings")
 

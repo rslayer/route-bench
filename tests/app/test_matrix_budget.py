@@ -10,6 +10,7 @@ call-recording stand-in for Google.
 from __future__ import annotations
 
 import asyncio
+import json as _json
 from datetime import datetime
 from pathlib import Path
 
@@ -18,7 +19,7 @@ import pytest
 from routebench.agent.client import LLMClient
 from routebench.app.budget import BudgetTracker
 from routebench.app.pipeline import PipelineDeps, run_session
-from routebench.core.config import AnalysisConfig, Settings
+from routebench.core.config import AnalysisConfig, Settings, TrafficProfile
 from routebench.infra.matrix.base import MatrixResult
 from routebench.infra.storage.local import LocalStorageBackend
 
@@ -38,6 +39,10 @@ class _RecordingGoogle:
 
     def __init__(self) -> None:
         self.calls = 0
+        # Calls carrying per-origin departure times only happen on the traffic
+        # two-pass banding path — so a non-zero count means this time-aware
+        # engine was wrongly wrapped in TrafficAdjustedProvider.
+        self.banded_calls = 0
 
     def get_matrix(
         self,
@@ -47,6 +52,8 @@ class _RecordingGoogle:
         origin_departure_times: list[datetime] | None = None,
     ) -> MatrixResult:
         self.calls += 1
+        if origin_departure_times is not None:
+            self.banded_calls += 1
         n_o, n_d = len(origins), len(destinations)
         return MatrixResult(
             durations_seconds=[[300.0] * n_d for _ in range(n_o)],
@@ -58,7 +65,31 @@ class _RecordingGoogle:
         )
 
 
-def _deps(tmp_path: Path, budget: float, provider: _RecordingGoogle) -> PipelineDeps:
+class _ApproxOsrm:
+    """Stands in for the haversine fallback under an OSRM outage: free-flow,
+    not time-aware, and approximate=True so the grade must be withheld."""
+
+    name = "haversine"
+    is_time_aware = False
+
+    def get_matrix(
+        self,
+        origins: list[tuple[float, float]],
+        destinations: list[tuple[float, float]],
+        departure_time: datetime | None = None,
+        origin_departure_times: list[datetime] | None = None,
+    ) -> MatrixResult:
+        n_o, n_d = len(origins), len(destinations)
+        return MatrixResult(
+            durations_seconds=[[300.0] * n_d for _ in range(n_o)],
+            distances_meters=[[4000.0] * n_d for _ in range(n_o)],
+            provider="haversine",
+            cached=False,
+            approximate=True,
+        )
+
+
+def _deps(tmp_path: Path, budget: float, provider: object, engine: str = "google") -> PipelineDeps:
     storage = LocalStorageBackend(base_path=str(tmp_path / "sessions"))
     return PipelineDeps(
         matrix_provider=provider,  # type: ignore[arg-type]
@@ -66,7 +97,7 @@ def _deps(tmp_path: Path, budget: float, provider: _RecordingGoogle) -> Pipeline
         llm_client=LLMClient(api_key=""),  # available=False → deterministic path, no LLM calls
         settings=Settings(
             _env_file=None,  # type: ignore[call-arg]
-            matrix_engine="google",
+            matrix_engine=engine,  # type: ignore[arg-type]
             google_maps_api_key="k",
             daily_matrix_budget_usd=budget,
             storage_path=str(tmp_path / "sessions"),
@@ -106,6 +137,10 @@ class TestMatrixBudgetDegrade:
         # And no further spend was recorded — a degraded run bills nothing more.
         spend = asyncio.run(deps.matrix_budget_tracker.today_spend())
         assert spend == pytest.approx(0.02)
+        # The report says the true reason it was degraded.
+        report = _json.loads(asyncio.run(deps.storage.read("s1", "analysis.json")))
+        assert report["matrix_approximate"] is True
+        assert report["matrix_approximate_reason"] == "budget"
 
     def test_under_budget_run_uses_google_and_records_spend(self, tmp_path: Path) -> None:
         provider = _RecordingGoogle()
@@ -130,6 +165,53 @@ class TestMatrixBudgetDegrade:
         assert provider.calls > 0
         assert deps.matrix_budget_tracker is not None
         assert asyncio.run(deps.matrix_budget_tracker.today_spend()) == 0.0
+
+
+class TestTimeAwareEngineNotBanded:
+    def test_google_with_a_traffic_profile_is_not_double_banded(self, tmp_path: Path) -> None:
+        """A time-aware engine already returns live-traffic durations, so wrapping
+        it in the band multiplier would double-count congestion and, via the
+        two-pass banding, re-fetch every matrix — doubling the metered spend."""
+        provider = _RecordingGoogle()
+        deps = _deps(tmp_path, budget=0.0, provider=provider)  # cap off: engine is used
+        config = AnalysisConfig(
+            route_benchmark_time_limit_s=1,
+            fleet_benchmark_time_limit_s=1,
+            traffic=TrafficProfile(default_factor=0.9),  # active profile
+        )
+
+        result = asyncio.run(run_session("s4", _write_csv(tmp_path), config, deps))
+
+        assert result.state == "succeeded"
+        assert provider.calls > 0  # the engine was used
+        # ...but never on the banded two-pass path: it was NOT wrapped.
+        assert provider.banded_calls == 0
+
+
+class TestTrafficOverOutageWithholdsGrade:
+    def test_traffic_profile_over_an_approximate_base_still_withholds_the_grade(
+        self, tmp_path: Path
+    ) -> None:
+        """The HIGH-severity regression: banding an approximate (outage) matrix
+        used to come back looking exact, so the pipeline published a quality
+        grade on straight-line estimates. The full guarantee is that the grade is
+        withheld — verified end to end, on the default free-flow (osrm) engine
+        with an active traffic profile and a routing outage underneath."""
+        provider = _ApproxOsrm()
+        deps = _deps(tmp_path, budget=0.0, provider=provider, engine="osrm")
+        config = AnalysisConfig(
+            route_benchmark_time_limit_s=1,
+            fleet_benchmark_time_limit_s=1,
+            traffic=TrafficProfile(default_factor=0.9),  # active → banding path runs
+        )
+
+        result = asyncio.run(run_session("s5", _write_csv(tmp_path), config, deps))
+
+        assert result.state == "succeeded"
+        report = _json.loads(asyncio.run(deps.storage.read("s5", "analysis.json")))
+        assert report["matrix_approximate"] is True
+        assert report["grade"] is None  # withheld, not published on estimates
+        assert report["matrix_approximate_reason"] == "outage"
 
 
 class TestLedgerSeparation:

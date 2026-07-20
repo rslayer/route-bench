@@ -56,6 +56,13 @@ def apply_row_factors(matrix: MatrixResult, factors: list[float]) -> MatrixResul
         provider=f"traffic_adjusted({matrix.provider})",
         cached=matrix.cached,
         cost_estimate=matrix.cost_estimate,
+        # Carry the flag through. Dropping it defaulted the banded result to
+        # approximate=False, so a traffic profile applied over an approximate
+        # base — the haversine fallback used when the routing engine is
+        # unreachable — came back looking exact, and the pipeline published a
+        # quality grade computed on straight-line estimates. Banding a guess does
+        # not make it a measurement.
+        approximate=matrix.approximate,
     )
 
 

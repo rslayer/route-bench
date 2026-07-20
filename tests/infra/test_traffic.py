@@ -217,6 +217,26 @@ class TestApplyRowFactors:
         with pytest.raises(ValueError, match="one speed factor per origin"):
             apply_row_factors(_matrix(3), [0.75, 0.80])
 
+    def test_preserves_the_approximate_flag(self) -> None:
+        """Banding an approximate base must stay approximate.
+
+        Dropping the flag defaulted the result to exact, so a traffic profile
+        applied over the haversine fallback (used when the routing engine is
+        down) came back looking measured — and the pipeline published a grade on
+        straight-line estimates. Banding a guess does not make it a measurement.
+        """
+        approx = MatrixResult(
+            durations_seconds=[[100.0]],
+            distances_meters=[[5000.0]],
+            provider="haversine",
+            cached=False,
+            approximate=True,
+        )
+        assert apply_row_factors(approx, [0.75]).approximate is True
+
+    def test_exact_base_stays_exact(self) -> None:
+        assert apply_row_factors(_matrix(2), [0.5, 1.0]).approximate is False
+
 
 class TestTrafficAdjustedProvider:
     """Provider composition and banding."""
