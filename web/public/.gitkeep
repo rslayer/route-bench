@@ -1,0 +1,2 @@
+# Keeps public/ in git so the Docker build always has it to copy,
+# even before any static assets are added.

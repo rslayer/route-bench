@@ -383,6 +383,20 @@ async def healthz(request: Request) -> JSONResponse:
         checks["osrm_reachable"] = False
 
     all_ok = all(checks.values())
+    # The status CODE gates load-balancer routing, so it must reflect only what
+    # makes the service unable to serve at all — which is storage, not OSRM.
+    #
+    # OSRM being down is a degraded-but-serving state by design: the API falls
+    # back to haversine estimates and withholds the grade. Returning 503 for it
+    # would make a platform health check (Fly's is wired to this endpoint) pull a
+    # perfectly-working API out of rotation on every OSRM blip, and would make
+    # the first deploy fail if the API came up a moment before its OSRM sidecar.
+    # Storage being unreachable is different — with no place to write a session
+    # the service genuinely cannot function, so that alone is a hard 503.
+    #
+    # The body still reports the full picture (status "degraded", matrix_mode,
+    # grade_available), so operators and the /healthz curl see the OSRM state.
+    can_serve = checks["storage_writable"]
     return JSONResponse(
         content={
             "status": "ok" if all_ok else "degraded",
@@ -393,5 +407,5 @@ async def healthz(request: Request) -> JSONResponse:
             "matrix_mode": "osrm" if checks["osrm_reachable"] else "haversine_estimates",
             "grade_available": checks["osrm_reachable"],
         },
-        status_code=200 if all_ok else 503,
+        status_code=200 if can_serve else 503,
     )

@@ -18,8 +18,13 @@ primary_region = "dfw"
 [http_service]
   internal_port = 5000
   force_https = false
-  auto_stop_machines = "stop"
-  auto_start_machines = true
+  # Always on, not auto-stopped. The API reaches OSRM over .internal DNS, which
+  # bypasses Fly's proxy — so the proxy's idle timer never sees that traffic and
+  # would auto-stop a machine the API is actively using, stranding matrix calls
+  # until it cold-starts. A single always-on sidecar is what min=1 already wants;
+  # this just removes the stop/start churn that .internal traffic can't prevent.
+  auto_stop_machines = "off"
+  auto_start_machines = false
   min_machines_running = 1
 
 # Memory must exceed the loaded graph; a US-state MLD graph is comfortable at

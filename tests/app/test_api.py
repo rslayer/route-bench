@@ -314,10 +314,17 @@ class TestHealthz:
         assert body["matrix_mode"] == "osrm"
         assert body["grade_available"] is True
 
-    def test_unreachable_osrm_reports_the_consequence(
+    def test_unreachable_osrm_is_degraded_but_still_serving(
         self, app: TestClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Down means degraded, and healthz says what that costs the user."""
+        """OSRM down is a degraded-but-serving state, NOT a 503.
+
+        The status code gates load-balancer routing. Returning 503 here would
+        pull a working API — one that still serves haversine estimates with the
+        grade withheld — out of rotation on every OSRM blip, defeating the whole
+        graceful-degradation design. So OSRM down is 200 with a degraded body;
+        only storage being unreachable is a hard 503 (see the next test).
+        """
 
         def _boom(*args: object, **kwargs: object) -> object:
             raise OSError("connection refused")
@@ -326,10 +333,35 @@ class TestHealthz:
 
         resp = app.get("/healthz")
         body = resp.json()
-        assert resp.status_code == 503
+        assert resp.status_code == 200
+        assert body["status"] == "degraded"
         assert body["checks"]["osrm_reachable"] is False
         assert body["matrix_mode"] == "haversine_estimates"
         assert body["grade_available"] is False
+
+    def test_unwritable_storage_is_a_hard_503(
+        self, app: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With nowhere to write a session the service cannot function, so this
+        is the one condition that pulls it from rotation."""
+        import routebench.infra.storage.local as local_mod
+
+        async def _not_writable(self: object) -> bool:
+            return False
+
+        class _OsrmOk:
+            status_code = 200
+
+            @staticmethod
+            def json() -> dict[str, str]:
+                return {"code": "Ok"}
+
+        monkeypatch.setattr(local_mod.LocalStorageBackend, "is_writable", _not_writable)
+        _patch_osrm_probe(monkeypatch, _OsrmOk())  # OSRM fine; only storage is down
+
+        resp = app.get("/healthz")
+        assert resp.status_code == 503
+        assert resp.json()["checks"]["storage_writable"] is False
 
     def test_non_json_body_is_not_reachable(
         self, app: TestClient, monkeypatch: pytest.MonkeyPatch
