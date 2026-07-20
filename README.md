@@ -156,6 +156,8 @@ Key environment variables (see `.env.example`):
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ANTHROPIC_API_KEY` | — | Required for LLM layer |
+| `MATRIX_ENGINE` | `osrm` | `osrm` (free-flow) or `google` (live traffic, billed) |
+| `GOOGLE_MAPS_API_KEY` | — | Required when `MATRIX_ENGINE=google` |
 | `OSRM_HOST` | `http://localhost:5000` | OSRM endpoint |
 | `STORAGE_BACKEND` | `local` | `local` or `s3` |
 | `STORAGE_PATH` | `data/sessions` | Local storage path |

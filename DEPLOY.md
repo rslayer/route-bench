@@ -141,7 +141,9 @@ Set as Fly **secrets** (sensitive) or in `fly.toml` `[env]` (not sensitive).
 | `R2_SECRET_ACCESS_KEY` | secret | yes | |
 | `R2_BUCKET` | secret or env | yes | default `routebench` |
 | `R2_REGION` | env | no | default `auto` (R2) |
-| `OSRM_HOST` | fly.toml env | yes | `http://routebench-osrm.internal:5000` |
+| `OSRM_HOST` | fly.toml env | yes (osrm engine) | `http://routebench-osrm.internal:5000` |
+| `MATRIX_ENGINE` | secret or env | no | `osrm` (default) or `google` |
+| `GOOGLE_MAPS_API_KEY` | secret | if google | billed per element; see above |
 | `WEB_ORIGIN` | secret | yes | exact web origin, for CORS |
 | `ANTHROPIC_API_KEY` | secret | no | omit → templated prose |
 | `ADMIN_TOKEN` | secret | recommended | gates `/admin/*`; empty fails closed |
@@ -150,6 +152,36 @@ Set as Fly **secrets** (sensitive) or in `fly.toml` `[env]` (not sensitive).
 | `NEXT_PUBLIC_API_BASE` | web build-arg | yes | the API's public URL |
 
 ---
+
+## Optional: live traffic via Google instead of OSRM
+
+By default RouteBench uses self-hosted OSRM, which returns free-flow times at no
+per-request cost. To grade against **live traffic** instead, switch the matrix
+engine to Google Routes:
+
+```bash
+fly secrets set -a routebench \
+  MATRIX_ENGINE=google \
+  GOOGLE_MAPS_API_KEY="AIza..."
+```
+
+The key needs the **Routes API** enabled with billing, and traffic-aware
+requests use the Advanced tier. Understand the cost before switching: Google
+bills per **element** (origins × destinations), so a single 42-stop fleet
+benchmark is ~1,800 elements ≈ **$18**. It is off by default for exactly this
+reason.
+
+Behaviour when on:
+- Times are real traffic-adjusted durations; the free-flow band multiplier is
+  not applied on top.
+- Any failure (bad key, quota, outage) falls back to haversine estimates with
+  the grade withheld — the same graceful path as an OSRM outage.
+- Selecting `google` with no key **fails at startup**, so a misconfiguration
+  surfaces immediately rather than mid-analysis.
+- If you run Google, you do not need the OSRM sidecar (step 1) at all.
+
+HERE is a natural second engine — the selector and provider seam are built for
+it — but only Google ships today.
 
 ## What is NOT set up
 

@@ -227,8 +227,30 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     claude_model: str = "claude-opus-4-8"
 
+    # Which engine computes the origin-destination matrix.
+    #
+    # "osrm" (default) — self-hosted, free-flow times, no per-request cost.
+    # "google" — Google Routes computeRouteMatrix with live traffic. Needs
+    #   google_maps_api_key and bills per element (origins x destinations), so
+    #   it is off unless deliberately selected. When active it returns real
+    #   traffic-adjusted times directly, and the per-upload traffic profile
+    #   (the free-flow band multiplier) is not applied on top — that would
+    #   double-count congestion.
+    #
+    # Whatever the engine, the haversine fallback still catches an outage, and
+    # the grade is withheld on an approximate result. Selecting "google" with
+    # no key is a configuration error caught at startup rather than a silent
+    # fall-through to OSRM.
+    matrix_engine: Literal["osrm", "google"] = "osrm"
+
     # OSRM
     osrm_host: str = "http://localhost:5000"
+
+    # Google Routes API key, used only when matrix_engine == "google". Set as a
+    # deployment secret, never entered in the web UI — a routing key is a
+    # billable credential and must not transit the frontend or land in a
+    # per-upload config.
+    google_maps_api_key: str = ""
 
     # Filesystem cache for OSRM matrices. Wraps OSRM only, never the fallback,
     # so a cache hit is always a real road-network answer. Approximate results
