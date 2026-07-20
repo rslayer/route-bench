@@ -16,7 +16,7 @@ Four-layer pipeline:
 ### Hosted Architecture (Phase 8+9)
 
 ```
-Streamlit UI  -->  FastAPI API  -->  SessionWorker  -->  Pipeline
+Next.js web  -->  FastAPI API  -->  SessionWorker  -->  Pipeline
                     |                     |
                     v                     v
                Rate Limiter         Async Queue (depth=5)
@@ -108,19 +108,18 @@ is a withheld grade rather than an error.
 ## Run the API Server
 
 ```bash
-# Start FastAPI
+# The API (the frontend lives in web/ — see web/README or `npm --prefix web run dev`)
 uv run uvicorn routebench.app.api.app:create_app --factory --host 0.0.0.0 --port 8000
-
-# Start Streamlit UI (in another terminal)
-uv run streamlit run src/routebench/app/streamlit_app.py
 ```
 
 Or with Docker:
 
 ```bash
 docker build -t routebench .
-docker run -p 8000:8000 -p 8501:8501 --env-file .env routebench
+docker run -p 8000:8000 --env-file .env routebench
 ```
+
+To deploy to a hosted site, see [DEPLOY.md](DEPLOY.md).
 
 ## Run Tests
 
@@ -210,15 +209,10 @@ Omitting `traffic` keeps free-flow behavior, and the report says so. Notes:
 
 ## Deployment
 
-### Fly.io
-
-```bash
-# Main app
-fly deploy -c fly.toml
-
-# OSRM sidecar
-fly deploy -c fly.osrm.toml
-```
+Three Fly.io apps: the API (`fly.toml`), the OSRM sidecar with its graph baked
+in (`fly.osrm.toml`), and the Next.js frontend (`fly.web.toml`). Sessions persist
+to Cloudflare R2. The full runbook — secrets, order, verification — is in
+[DEPLOY.md](DEPLOY.md).
 
 ## Scripts
 
@@ -237,7 +231,7 @@ route-bench/
 │   ├── analysis/       # Scoring, diagnosis, benchmark, visuals
 │   ├── report/         # Jinja2 templates, prose slots, PDF
 │   ├── agent/          # Orchestrator, writer, verifier, prompts
-│   └── app/            # FastAPI, Streamlit, pipeline, worker, sessions
+│   └── app/            # FastAPI, pipeline, worker, sessions
 │       └── api/        # Routes, admin, app factory
 ├── tests/              # 151 tests
 ├── data/

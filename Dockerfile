@@ -1,18 +1,22 @@
+# RouteBench API image.
+#
+# One process: the FastAPI app under uvicorn. It used to run FastAPI and a
+# legacy Streamlit UI side by side under supervisord, with Streamlit exposed
+# publicly on a second port with no auth. The Next.js web app replaced Streamlit,
+# so that whole surface is gone — one process, one port, no supervisor.
+#
+# The web frontend is a separate image (web/Dockerfile); this builds the API only.
+
 # ---- Builder stage ----
 FROM python:3.12-slim AS builder
 
 WORKDIR /app
 
-# Install uv
 RUN pip install uv
 
-# Copy dependency files
 COPY pyproject.toml uv.lock ./
-
-# Install dependencies
 RUN uv sync --frozen --no-dev
 
-# Copy source
 COPY src/ src/
 COPY scripts/ scripts/
 COPY data/ data/
@@ -20,7 +24,7 @@ COPY data/ data/
 # ---- Runtime stage ----
 FROM python:3.12-slim AS runtime
 
-# WeasyPrint system deps + supervisor
+# WeasyPrint's native libraries, for PDF report rendering. No supervisor now.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpango-1.0-0 \
     libpangoft2-1.0-0 \
@@ -29,22 +33,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libffi8 \
     shared-mime-info \
     fonts-dejavu \
-    supervisor \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy venv and source from builder
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/src /app/src
 COPY --from=builder /app/scripts /app/scripts
 COPY --from=builder /app/data /app/data
 COPY --from=builder /app/pyproject.toml /app/pyproject.toml
 
-# Copy supervisord config
-COPY supervisord.conf /etc/supervisor/conf.d/routebench.conf
-
-# Add venv to PATH
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONPATH="/app/src"
 
@@ -56,9 +54,11 @@ ENV PYTHONPATH="/app/src"
 ARG GIT_SHA=""
 ENV GIT_SHA=${GIT_SHA}
 
-# Create data directories
 RUN mkdir -p /app/data/sessions /app/data/samples
 
-EXPOSE 8000 8501
-
-CMD ["supervisord", "-c", "/etc/supervisor/conf.d/routebench.conf"]
+# Binds $PORT when the platform injects one (Railway/Render/Heroku), else 8000.
+# Fly sets internal_port instead and does not inject $PORT, so the default holds
+# there. Shell form so ${PORT} is expanded at runtime, not frozen at build.
+ENV PORT=8000
+EXPOSE 8000
+CMD uvicorn routebench.app.api.app:create_app --factory --host 0.0.0.0 --port ${PORT}
