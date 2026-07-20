@@ -135,6 +135,26 @@ Then open `https://routebench-web.fly.dev` and run the sample fleet through it.
 
 ---
 
+## 4. Validate the live site
+
+Open the URL and upload the sample by hand, or run the smoke test against the
+deployed stack — it drives the real path (pick a file, upload, watch it run,
+read the result) end to end and fails loudly if CORS, storage, or rendering is
+wrong:
+
+```bash
+cd web
+E2E_LIVE=1 E2E_BASE_URL=https://routebench-web.fly.dev \
+  npx playwright test live-smoke
+```
+
+It is the same test used locally against `http://localhost:3000`, and it is
+skipped in normal CI (which has no live backend), so it only runs when you point
+it at a stack. A green run is the real proof the deploy works — not just that
+the machines are up.
+
+---
+
 ## Environment variables reference
 
 Set as Fly **secrets** (sensitive) or in `fly.toml` `[env]` (not sensitive).
