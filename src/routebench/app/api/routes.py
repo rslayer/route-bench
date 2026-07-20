@@ -338,74 +338,79 @@ async def health() -> JSONResponse:
 
 @router.get("/healthz")
 async def healthz(request: Request) -> JSONResponse:
-    """Readiness probe — checks OSRM reachable and storage writable."""
+    """Readiness probe — storage writability, and whether the matrix engine is serving.
+
+    Engine-aware: what "the matrix is healthy" means depends on which engine is
+    configured. Probing OSRM when the deployment runs on Google would report a
+    dependency that is not even in the request path, so the check branches.
+    """
     import httpx
 
     settings = request.app.state.settings
     storage = request.app.state.storage
 
-    checks: dict[str, bool] = {}
+    checks: dict[str, bool] = {"storage_writable": await storage.is_writable()}
 
-    # Check storage
-    checks["storage_writable"] = await storage.is_writable()
-
-    # Check OSRM with a lightweight nearest query.
-    #
-    # The probe coordinate used to be the literal "0,0", which OSRM rejects with
-    # HTTP 400 `{"code": "InvalidUrl"}` — its URL grammar does not accept that
-    # exact string (0.0,0 and -0,0 fail the same way; 1,1 is fine). Paired with
-    # a `status_code == 200` test, that made healthz report degraded whenever
-    # OSRM was perfectly healthy, which in production means a load balancer
-    # pulls the app out of rotation over a dependency that is fine.
-    #
-    # Worth knowing for anyone tempted to make this probe stricter: OSRM has no
-    # default snapping radius, so /nearest answers *any* in-bounds-syntax
-    # coordinate with 200 and `code: Ok` by snapping to the closest edge in the
-    # graph however far away that is — 1,1 against a Texas-only extract snaps
-    # across the Atlantic and reports success. So this cannot verify which
-    # region is loaded, only that osrm-routed is up and serving. Verifying
-    # coverage would mean passing an explicit `radiuses=` bound and checking
-    # `waypoints[].distance`, which is a different question than readiness.
-    #
-    # Judged on whether OSRM answered *like OSRM*: every response carries a
-    # `code` field, success or failure, so a parseable body proves the process
-    # is serving. A connection error, a timeout, or an HTML error page from a
-    # proxy in front of a not-yet-ready container does not.
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"{settings.osrm_host}/nearest/v1/driving/1,1")
-            if resp.status_code == 200:
-                checks["osrm_reachable"] = True
-            else:
-                body = resp.json()
-                checks["osrm_reachable"] = isinstance(body, dict) and "code" in body
-    except Exception:
-        checks["osrm_reachable"] = False
+    if settings.matrix_engine == "google":
+        # Nothing to probe: there is no OSRM sidecar under this engine, and the
+        # app would not have started without the key (the engine factory raises
+        # on google-without-key), so at runtime the engine is configured. A live
+        # Google call costs money per element; running one on every health check
+        # — Fly hits this every 15s — would bill real money to say "up", so
+        # readiness is judged on configuration, not a paid probe. A specific run
+        # can still hit a quota error and fall back to haversine; that is a
+        # per-run degrade, not an unready service.
+        matrix_mode = "google"
+        grade_available = True
+    else:
+        # engine == "osrm": probe it with a lightweight nearest query.
+        #
+        # The probe coordinate is "1,1", not "0,0": OSRM rejects the literal
+        # "0,0" with HTTP 400 `{"code": "InvalidUrl"}` (its URL grammar does not
+        # accept that exact string), which paired with a status==200 test made
+        # healthz report degraded against a perfectly healthy OSRM.
+        #
+        # OSRM has no default snapping radius, so /nearest answers any
+        # in-bounds-syntax coordinate with 200 by snapping to the nearest edge
+        # however far away — so this proves osrm-routed is up and serving, not
+        # which region is loaded. Judged on whether OSRM answered *like OSRM*:
+        # every response carries a `code` field, so a parseable body proves the
+        # process is serving; a connection error or a proxy's HTML page does not.
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"{settings.osrm_host}/nearest/v1/driving/1,1")
+                if resp.status_code == 200:
+                    checks["osrm_reachable"] = True
+                else:
+                    body = resp.json()
+                    checks["osrm_reachable"] = isinstance(body, dict) and "code" in body
+        except Exception:
+            checks["osrm_reachable"] = False
+        matrix_mode = "osrm" if checks["osrm_reachable"] else "haversine_estimates"
+        grade_available = checks["osrm_reachable"]
 
     all_ok = all(checks.values())
     # The status CODE gates load-balancer routing, so it must reflect only what
-    # makes the service unable to serve at all — which is storage, not OSRM.
+    # makes the service unable to serve at all — which is storage, not the matrix
+    # engine. A degraded matrix (OSRM down, or Google quota-exhausted) still
+    # serves haversine estimates with the grade withheld, so returning 503 for it
+    # would make Fly's health check pull a working API out of rotation. Storage
+    # being unreachable is different — with no place to write a session the
+    # service genuinely cannot function, so that alone is a hard 503.
     #
-    # OSRM being down is a degraded-but-serving state by design: the API falls
-    # back to haversine estimates and withholds the grade. Returning 503 for it
-    # would make a platform health check (Fly's is wired to this endpoint) pull a
-    # perfectly-working API out of rotation on every OSRM blip, and would make
-    # the first deploy fail if the API came up a moment before its OSRM sidecar.
-    # Storage being unreachable is different — with no place to write a session
-    # the service genuinely cannot function, so that alone is a hard 503.
-    #
-    # The body still reports the full picture (status "degraded", matrix_mode,
-    # grade_available), so operators and the /healthz curl see the OSRM state.
+    # The body still reports the full picture (status, matrix_mode,
+    # grade_available), so the state is visible without reading logs.
     can_serve = checks["storage_writable"]
     return JSONResponse(
         content={
             "status": "ok" if all_ok else "degraded",
             "checks": checks,
+            "matrix_engine": settings.matrix_engine,
             # What the deployment will actually do, not just what is up. A
             # degraded matrix is the difference between a graded report and a
             # withheld one, and that should be visible without reading logs.
-            "matrix_mode": "osrm" if checks["osrm_reachable"] else "haversine_estimates",
-            "grade_available": checks["osrm_reachable"],
+            "matrix_mode": matrix_mode,
+            "grade_available": grade_available,
         },
         status_code=200 if can_serve else 503,
     )
