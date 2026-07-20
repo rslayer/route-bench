@@ -217,7 +217,11 @@ export default function RouteMap({
           "line-color": mutedColorExpr,
           "line-width": ["case", ["boolean", ["feature-state", "highlighted"], false], 3.5, 2],
           "line-dasharray": [1.5, 1.5],
-          "line-offset": OPTIMAL_OFFSET_PX,
+          // Starts at 0, not OPTIMAL_OFFSET_PX. The default mode is "actual",
+          // where the offset must be 0; the mode effect sets ±offset only in
+          // split. Baking a non-zero offset here would draw the route off its
+          // road for the frame before that effect runs.
+          "line-offset": 0,
           // Dimmed in step with the plan line, so selecting a finding fades
           // both variants of the unrelated routes rather than leaving a thicket
           // of solver lines behind. Base opacity is below the plan line's so it
@@ -235,7 +239,9 @@ export default function RouteMap({
         paint: {
           "line-color": colorExpr,
           "line-width": ["case", ["boolean", ["feature-state", "highlighted"], false], 5, 3],
-          "line-offset": ACTUAL_OFFSET_PX,
+          // 0 at creation; the mode effect applies ACTUAL_OFFSET_PX only in
+          // split. See the optimal layer above.
+          "line-offset": 0,
           "line-opacity": ["case", ["boolean", ["feature-state", "dimmed"], false], 0.15, 0.85],
         },
       });
