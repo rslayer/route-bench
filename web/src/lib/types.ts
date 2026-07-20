@@ -307,6 +307,13 @@ export interface AnalysisReport {
    */
   matrix_approximate: boolean;
   /**
+   * Why the matrix was approximate: "outage" (routing engine unreachable) or
+   * "budget" (daily matrix-spend cap reached, degraded on purpose). Null when
+   * exact, or on artifacts written before this field existed — treat null as
+   * "outage" for wording.
+   */
+  matrix_approximate_reason: "outage" | "budget" | null;
+  /**
    * False when the analysis ran with no language model — every applicable
    * analyzer was run rather than a model-selected subset, and the prose is
    * templated rather than written. Metrics, findings, benchmark and grade are
