@@ -20,9 +20,9 @@ logger: structlog.stdlib.BoundLogger = structlog.get_logger()
 _LEDGER_PREFIX = "ledger"
 
 
-def ledger_key(day: str) -> str:
-    """Storage key for a day's ledger."""
-    return f"{_LEDGER_PREFIX}/{day}.jsonl"
+def ledger_key(day: str, prefix: str = _LEDGER_PREFIX) -> str:
+    """Storage key for a day's ledger under a given prefix."""
+    return f"{prefix}/{day}.jsonl"
 
 
 class BudgetTracker:
@@ -37,9 +37,15 @@ class BudgetTracker:
         self,
         storage: StorageBackend,
         daily_budget_usd: float = 50.0,
+        ledger_prefix: str = _LEDGER_PREFIX,
     ) -> None:
         self._storage = storage
         self._daily_budget = daily_budget_usd
+        # Distinct ledgers must not share a prefix, or two trackers (LLM spend
+        # and matrix spend) would append to the same daily file and each would
+        # read the other's spend as its own. The default keeps the LLM tracker's
+        # historical key unchanged.
+        self._ledger_prefix = ledger_prefix
         self._budget_rejections: int = 0
         # Appends are read-modify-write on S3, so serialize them in-process.
         self._append_lock = asyncio.Lock()
@@ -63,7 +69,7 @@ class BudgetTracker:
             "recorded_at": datetime.now(UTC).isoformat(),
         }
         line = (json.dumps(entry, separators=(",", ":")) + "\n").encode()
-        key = ledger_key(self._today_key())
+        key = ledger_key(self._today_key(), self._ledger_prefix)
 
         async with self._append_lock:
             try:
@@ -75,7 +81,7 @@ class BudgetTracker:
 
     async def today_spend(self) -> float:
         """Sum today's ledger. Returns 0.0 when the day has no ledger yet."""
-        key = ledger_key(self._today_key())
+        key = ledger_key(self._today_key(), self._ledger_prefix)
         try:
             raw = await self._storage.read_object(key)
         except FileNotFoundError:

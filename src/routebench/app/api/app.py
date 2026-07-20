@@ -154,6 +154,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         storage=storage,
         daily_budget_usd=settings.daily_budget_usd,
     )
+    # A parallel tracker for matrix-engine spend, on its own ledger so it never
+    # mixes with LLM spend. A no-op unless the engine is metered (Google) and a
+    # cap is configured; the pipeline consults it per run.
+    matrix_budget_tracker = BudgetTracker(
+        storage=storage,
+        daily_budget_usd=settings.daily_matrix_budget_usd,
+        ledger_prefix="matrix-ledger",
+    )
 
     deps = PipelineDeps(
         matrix_provider=matrix_provider,
@@ -161,6 +169,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         llm_client=llm_client,
         settings=settings,
         budget_tracker=budget_tracker,
+        matrix_budget_tracker=matrix_budget_tracker,
     )
 
     registry = SessionRegistry(storage=storage)

@@ -316,6 +316,17 @@ class Settings(BaseSettings):
     daily_budget_usd: float = 50.0
     max_input_tokens_per_session: int = 500_000
 
+    # Daily cap on matrix-engine spend, in USD. Only meaningful on a metered
+    # engine (Google, which bills per element); OSRM and haversine are free, so
+    # this does nothing there. 0 disables the cap — the default, because most
+    # deployments do not need one and a cap that silently degrades every run
+    # would surprise. Once today's estimated matrix spend reaches this, further
+    # runs fall back to haversine estimates (grade withheld) instead of billing
+    # more, and it resets at UTC midnight. Set it well above a normal day's spend
+    # so it is a runaway-bill backstop, not a routine limiter. Put a hard quota
+    # on the key in the Google console too — this is a courtesy, not enforcement.
+    daily_matrix_budget_usd: float = 0.0
+
     # Admin
     admin_token: str = ""
 

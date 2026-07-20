@@ -39,6 +39,8 @@ from routebench.core.exceptions import BudgetExceededError, RouteBenchError
 from routebench.core.validation import validate_csv
 from routebench.infra.geometry import OSRMGeometryProvider
 from routebench.infra.matrix.base import MatrixProvider
+from routebench.infra.matrix.google import estimate_run_cost_usd
+from routebench.infra.matrix.haversine import HaversineMatrixProvider
 from routebench.infra.matrix.traffic import TrafficAdjustedProvider
 from routebench.infra.storage.base import StorageBackend
 from routebench.infra.telemetry import Telemetry
@@ -62,6 +64,10 @@ class PipelineDeps:
     # that callers which do not meter spend (tests, one-off scripts) need not
     # invent one.
     budget_tracker: BudgetTracker | None = None
+    # Caps daily matrix-engine spend the same way, but for the metered engine
+    # (Google). Its own ledger, so it does not mix with LLM spend. Optional and,
+    # like the LLM cap, a no-op when its daily budget is 0.
+    matrix_budget_tracker: BudgetTracker | None = None
 
 
 @dataclass
@@ -136,7 +142,31 @@ async def run_session(
         # The matrix provider is a process-wide singleton but the traffic profile
         # is chosen per upload, so band here rather than at the composition root.
         matrix_provider = deps.matrix_provider
-        if config.traffic.is_active:
+
+        # Daily matrix-spend cap. On the metered engine (Google), once today's
+        # estimated spend reaches the cap, degrade this run to haversine
+        # estimates rather than billing more — the same graceful path as a
+        # routing outage, and the grade is withheld because haversine results are
+        # approximate. Only checked on Google with a cap configured; free engines
+        # (osrm, haversine) never trip it.
+        matrix_budget_exceeded = False
+        if (
+            deps.settings.matrix_engine == "google"
+            and deps.matrix_budget_tracker is not None
+            and deps.matrix_budget_tracker.daily_budget > 0
+            and await deps.matrix_budget_tracker.is_exceeded()
+        ):
+            matrix_provider = HaversineMatrixProvider()
+            matrix_budget_exceeded = True
+            logger.info(
+                "matrix_budget_exceeded_degrading",
+                session_id=session_id,
+                reason="daily matrix spend cap reached; running on straight-line estimates",
+            )
+        elif config.traffic.is_active:
+            # Not banded when degraded: a traffic profile over haversine would
+            # multiply straight-line estimates AND (via apply_row_factors) drop
+            # the approximate flag, which would wrongly publish a grade.
             matrix_provider = TrafficAdjustedProvider(deps.matrix_provider, config.traffic)
             logger.info(
                 "traffic_profile_active",
@@ -199,6 +229,23 @@ async def run_session(
         )
         analysis = await asyncio.to_thread(orchestrator.run, fleet)
         _check_token_cap()
+
+        # Record this run's estimated matrix spend against the daily cap, so a
+        # later run the same UTC day sees it. Only when the run actually used the
+        # metered engine — a run already degraded for budget spent nothing more,
+        # and free engines cost nothing. The estimate is the no-cache worst case
+        # (see estimate_run_cost_usd), which keeps the cap conservative.
+        if (
+            not matrix_budget_exceeded
+            and deps.settings.matrix_engine == "google"
+            and deps.matrix_budget_tracker is not None
+            and deps.matrix_budget_tracker.daily_budget > 0
+        ):
+            await deps.matrix_budget_tracker.record_spend(
+                estimate_run_cost_usd(fleet, config.include_benchmark),
+                session_id=session_id,
+            )
+
         await _emit("analyzing", 45, f"Analysis complete: {len(analysis.findings)} findings")
 
         # Part D: log the score distribution so the v1.0 breakpoints — which are

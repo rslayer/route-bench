@@ -215,10 +215,19 @@ self-hosted graph and no big machine. Behaviour:
 - The engine is chosen at startup; with no key the app fails to start, so a
   misconfiguration surfaces immediately rather than mid-analysis.
 
-There is **no matrix-spend cap** yet (unlike the LLM's `DAILY_BUDGET_USD`). On a
-public site, put a **budget/quota limit on the key in the Google Cloud console**
-so a traffic spike cannot run up an unbounded bill. Tracking matrix spend the way
-LLM spend is tracked is a sensible follow-up.
+**Cap the spend.** Set `DAILY_MATRIX_BUDGET_USD` to a daily ceiling — once the
+day's estimated matrix spend reaches it, runs fall back to haversine estimates
+(grade withheld) instead of billing more, resetting at UTC midnight. It is off
+by default (`0`). Set it well above a normal day so it is a runaway-bill
+backstop, not a routine limiter:
+
+```bash
+fly secrets set -a routebench DAILY_MATRIX_BUDGET_USD=200
+```
+
+This is a courtesy, not enforcement — it meters an *estimate* (the no-cache
+worst case) and cannot stop a call already in flight. Also put a hard
+**budget/quota on the key in the Google Cloud console** as the real ceiling.
 
 HERE is a natural second engine — the selector and provider seam are built for
 it — but only Google and OSRM ship today.
