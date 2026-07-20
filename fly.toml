@@ -5,7 +5,14 @@
 #
 # Secrets are NOT in this file. Set them once with `fly secrets set` before the
 # first deploy (see DEPLOY.md): R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY,
-# R2_ENDPOINT, WEB_ORIGIN, and optionally ANTHROPIC_API_KEY and ADMIN_TOKEN.
+# R2_ENDPOINT, WEB_ORIGIN, GOOGLE_MAPS_API_KEY, and optionally ANTHROPIC_API_KEY
+# and ADMIN_TOKEN.
+#
+# This deploy runs on the Google matrix engine (MATRIX_ENGINE=google below) for
+# continent-wide coverage without self-hosting a routing graph. GOOGLE_MAPS_API_KEY
+# is therefore REQUIRED — the app fails to start without it — and the OSRM sidecar
+# (fly.osrm.toml) is optional. Switch MATRIX_ENGINE back to "osrm" to run on the
+# self-hosted graph instead; then the key is not needed and the sidecar is.
 
 app = "routebench"
 primary_region = "dfw"
@@ -32,6 +39,12 @@ primary_region = "dfw"
 
 [env]
   STORAGE_BACKEND = "s3"
+  # Google Routes: continent-wide coverage + live traffic, no self-hosted graph.
+  # Bills per element — see DEPLOY.md for the cost model. GOOGLE_MAPS_API_KEY is a
+  # required secret. Set to "osrm" to use the self-hosted sidecar instead.
+  MATRIX_ENGINE = "google"
+  # Only consulted when MATRIX_ENGINE = "osrm"; harmless otherwise. Left set so
+  # switching back to the sidecar needs no further change here.
   OSRM_HOST = "http://routebench-osrm.internal:5000"
   LOG_LEVEL = "INFO"
   # The matrix cache lives on the mounted volume so it survives deploys instead

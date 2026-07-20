@@ -1,20 +1,26 @@
 # Deploying RouteBench to Fly.io
 
-RouteBench is three services, deployed as three Fly apps:
+RouteBench deploys as Fly apps:
 
-| App | What | Config |
-| --- | --- | --- |
-| `routebench` | FastAPI API | `fly.toml` |
-| `routebench-osrm` | OSRM routing engine, graph baked in | `fly.osrm.toml` |
-| `routebench-web` | Next.js frontend | `fly.web.toml` |
+| App | What | Config | Needed? |
+| --- | --- | --- | --- |
+| `routebench` | FastAPI API | `fly.toml` | always |
+| `routebench-web` | Next.js frontend | `fly.web.toml` | always |
+| `routebench-osrm` | Self-hosted OSRM routing engine | `fly.osrm.toml` | only if `MATRIX_ENGINE=osrm` |
+
+**The default deploy runs on the Google matrix engine** (`MATRIX_ENGINE=google`
+in `fly.toml`), which gives continent-wide coverage and live traffic without
+self-hosting a routing graph. So the OSRM sidecar is **optional** — skip step 1
+below unless you switch to the self-hosted engine. The trade-off is cost: Google
+bills per element (see the cost model further down), so watch your volume.
 
 Session artifacts live in **Cloudflare R2** (or any S3-compatible store), not on
 the machine — Fly disks are ephemeral, and a redeploy would otherwise wipe every
 report. Only the matrix cache sits on a small Fly volume.
 
-This is a real deploy: it needs a Fly account, an R2 bucket, and it costs money
-(three small machines plus object storage). None of it is automated — run the
-steps below by hand the first time, in order.
+This is a real deploy: it needs a Fly account, an R2 bucket, a Google Maps API
+key, and it costs money. None of it is automated — run the steps below by hand
+the first time, in order.
 
 ---
 
@@ -23,21 +29,28 @@ steps below by hand the first time, in order.
 - `fly` CLI installed and `fly auth login` done.
 - A Cloudflare R2 bucket (or S3/MinIO). Note its **endpoint URL**, **access key
   id**, **secret access key**, and **bucket name**.
+- A **Google Maps API key** with the **Routes API** enabled and billing on
+  (required for the default engine). Understand the cost first — see
+  "The Google engine cost model" below.
 - Optionally an Anthropic API key. Without it the analysis still runs — findings
   are filled from templates instead of written prose — so you can ship first and
   add it later.
 
-Create the three apps (no deploy yet):
+Create the apps (no deploy yet). Skip `routebench-osrm` unless you plan to run
+the self-hosted engine:
 
 ```bash
 fly apps create routebench
-fly apps create routebench-osrm
 fly apps create routebench-web
+fly apps create routebench-osrm   # only for MATRIX_ENGINE=osrm
 ```
 
 ---
 
-## 1. OSRM (deploy first — the API waits on it)
+## 1. OSRM (OPTIONAL — skip on the default Google engine)
+
+**Only needed if you set `MATRIX_ENGINE=osrm`.** On the default Google engine
+there is no self-hosted routing graph, so skip straight to step 2.
 
 The graph is built into the image, so this is one command. It is the slowest
 step: it downloads a regional extract (a US state is ~1 GB) and runs the full
@@ -75,8 +88,9 @@ fly ssh console -a routebench-osrm -C \
 ## 2. API
 
 Set the secrets **before** the first deploy. `fly.toml` already sets
-`STORAGE_BACKEND=s3` and points `OSRM_HOST` at the sidecar; these are the values
-it cannot ship in plaintext:
+`STORAGE_BACKEND=s3` and `MATRIX_ENGINE=google`; these are the values it cannot
+ship in plaintext. On the Google engine, `GOOGLE_MAPS_API_KEY` is **required** —
+the app fails to start without it:
 
 ```bash
 fly secrets set -a routebench \
@@ -85,11 +99,15 @@ fly secrets set -a routebench \
   R2_SECRET_ACCESS_KEY="..." \
   R2_BUCKET="routebench" \
   WEB_ORIGIN="https://routebench-web.fly.dev" \
+  GOOGLE_MAPS_API_KEY="AIza..." \
   ADMIN_TOKEN="$(openssl rand -hex 32)"
 
 # Optional — enables written prose instead of templated findings:
 fly secrets set -a routebench ANTHROPIC_API_KEY="sk-ant-..."
 ```
+
+(If you switched to `MATRIX_ENGINE=osrm`, drop `GOOGLE_MAPS_API_KEY` and make
+sure the OSRM sidecar from step 1 is deployed instead.)
 
 `WEB_ORIGIN` **must** match the web app's public URL exactly, or the browser's
 cross-origin calls are refused and the upload button fails with no server error.
@@ -105,18 +123,19 @@ Verify:
 
 ```bash
 curl -s https://routebench.fly.dev/healthz | jq
-# status: "ok", checks.storage_writable: true, checks.osrm_reachable: true,
-# matrix_mode: "osrm", grade_available: true
+# status: "ok", checks.storage_writable: true,
+# matrix_engine: "google", matrix_mode: "google", grade_available: true
 ```
 
-`/healthz` returns **200 while OSRM is down** — `status: "degraded"`,
-`matrix_mode: "haversine_estimates"`, `grade_available: false` — because the API
-still serves (estimates, grade withheld) and the Fly health check must not pull
-a working-but-degraded machine out of rotation. Only unreachable **storage** is
-a hard 503, since with nowhere to write a session the API genuinely cannot
-function. So if `matrix_mode` is `haversine_estimates`, the API cannot reach
-OSRM — check step 1 and that `OSRM_HOST` in `fly.toml` matches the OSRM app
-name — but the site is up.
+On the Google engine, `/healthz` reports readiness from configuration — it does
+**not** make a paid Google call on every check (Fly hits it every 15s). The one
+hard 503 is unwritable **storage**: with nowhere to write a session the API
+cannot function. A degraded matrix at request time (a Google quota error) falls
+back to haversine with the grade withheld for that run, but the service stays up.
+
+(On `MATRIX_ENGINE=osrm` the body instead reports `osrm_reachable` and, when
+OSRM is down, `matrix_mode: haversine_estimates` with a `degraded` status and
+still-200 — the same "serves estimates, never pulled from rotation" contract.)
 
 ---
 
@@ -167,9 +186,9 @@ Set as Fly **secrets** (sensitive) or in `fly.toml` `[env]` (not sensitive).
 | `R2_SECRET_ACCESS_KEY` | secret | yes | |
 | `R2_BUCKET` | secret or env | yes | default `routebench` |
 | `R2_REGION` | env | no | default `auto` (R2) |
-| `OSRM_HOST` | fly.toml env | yes (osrm engine) | `http://routebench-osrm.internal:5000` |
-| `MATRIX_ENGINE` | secret or env | no | `osrm` (default) or `google` |
-| `GOOGLE_MAPS_API_KEY` | secret | if google | billed per element; see above |
+| `MATRIX_ENGINE` | fly.toml env | no | `google` (default here) or `osrm` |
+| `GOOGLE_MAPS_API_KEY` | secret | yes (google engine) | billed per element; see cost model |
+| `OSRM_HOST` | fly.toml env | only osrm engine | `http://routebench-osrm.internal:5000` |
 | `WEB_ORIGIN` | secret | yes | exact web origin, for CORS |
 | `ANTHROPIC_API_KEY` | secret | no | omit → templated prose |
 | `ADMIN_TOKEN` | secret | recommended | gates `/admin/*`; empty fails closed |
@@ -179,35 +198,49 @@ Set as Fly **secrets** (sensitive) or in `fly.toml` `[env]` (not sensitive).
 
 ---
 
-## Optional: live traffic via Google instead of OSRM
+## The Google engine cost model
 
-By default RouteBench uses self-hosted OSRM, which returns free-flow times at no
-per-request cost. To grade against **live traffic** instead, switch the matrix
-engine to Google Routes:
+The default engine, Google Routes, needs the **Routes API** enabled with
+billing; traffic-aware requests use the Advanced tier. It bills per **element**
+(origins × destinations), and RouteBench's fleet benchmark is a full
+all-stops-to-all-stops matrix, so a single **42-stop fleet ≈ 1,800 elements
+≈ $18**. Cost grows with the square of fleet size.
 
-```bash
-fly secrets set -a routebench \
-  MATRIX_ENGINE=google \
-  GOOGLE_MAPS_API_KEY="AIza..."
-```
-
-The key needs the **Routes API** enabled with billing, and traffic-aware
-requests use the Advanced tier. Understand the cost before switching: Google
-bills per **element** (origins × destinations), so a single 42-stop fleet
-benchmark is ~1,800 elements ≈ **$18**. It is off by default for exactly this
-reason.
-
-Behaviour when on:
+This buys continent-wide (in fact worldwide) coverage and live traffic with no
+self-hosted graph and no big machine. Behaviour:
 - Times are real traffic-adjusted durations; the free-flow band multiplier is
   not applied on top.
-- Any failure (bad key, quota, outage) falls back to haversine estimates with
-  the grade withheld — the same graceful path as an OSRM outage.
-- Selecting `google` with no key **fails at startup**, so a misconfiguration
-  surfaces immediately rather than mid-analysis.
-- If you run Google, you do not need the OSRM sidecar (step 1) at all.
+- Any failure — bad key, quota exhausted, outage — falls back to haversine
+  estimates with the grade withheld, the same graceful path as an OSRM outage.
+- The engine is chosen at startup; with no key the app fails to start, so a
+  misconfiguration surfaces immediately rather than mid-analysis.
+
+There is **no matrix-spend cap** yet (unlike the LLM's `DAILY_BUDGET_USD`). On a
+public site, put a **budget/quota limit on the key in the Google Cloud console**
+so a traffic spike cannot run up an unbounded bill. Tracking matrix spend the way
+LLM spend is tracked is a sensible follow-up.
 
 HERE is a natural second engine — the selector and provider seam are built for
-it — but only Google ships today.
+it — but only Google and OSRM ship today.
+
+## Alternative: self-host OSRM instead of Google
+
+If your volume is high and concentrated in a few regions, a self-hosted OSRM
+graph has no per-request cost and can be cheaper than Google above roughly
+15–30 fleet analyses/day. It gives free-flow times (no live traffic) and only
+covers the region(s) you build. To switch:
+
+1. Set `MATRIX_ENGINE = "osrm"` in `fly.toml` `[env]`, and remove the
+   `GOOGLE_MAPS_API_KEY` secret (`fly secrets unset GOOGLE_MAPS_API_KEY -a routebench`).
+2. Deploy the OSRM sidecar (step 1 above) for the region you serve.
+3. Redeploy the API. `/healthz` will then report `matrix_mode: "osrm"`.
+
+A continent-scale graph (all of North America ≈ 18 GB extract → ~40–60 GB
+processed) needs a **large, always-on machine (~32–64 GB RAM)** and cannot use
+the baked-graph image — mount the graph on a volume instead. Query latency does
+**not** grow with graph size (OSRM's MLD keeps queries fast at any scale); the
+cost is RAM, disk, build time, and a much bigger monthly bill. For broad coverage
+without that, stay on Google.
 
 ## What is NOT set up
 

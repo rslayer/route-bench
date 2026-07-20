@@ -288,6 +288,31 @@ class TestHealthz:
         assert "checks" in body
         assert "storage_writable" in body["checks"]
 
+    def test_google_engine_reports_google_without_probing_osrm(
+        self, settings: Settings, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """On the Google engine there is no OSRM to probe, and a live Google
+        call would bill money on every health check — so readiness is judged on
+        configuration. It reports matrix_mode=google and never touches OSRM,
+        even if OSRM_HOST points at nothing."""
+        settings.matrix_engine = "google"
+        settings.google_maps_api_key = "a-key"
+        client = TestClient(create_app(settings=settings), raise_server_exceptions=False)
+
+        # Make any OSRM probe explode; the google path must not call it.
+        def _boom(*args: object, **kwargs: object) -> object:
+            raise AssertionError("healthz probed OSRM while on the Google engine")
+
+        monkeypatch.setattr(httpx.AsyncClient, "get", _boom)
+
+        resp = client.get("/healthz")
+        body = resp.json()
+        assert resp.status_code == 200
+        assert body["matrix_engine"] == "google"
+        assert body["matrix_mode"] == "google"
+        assert body["grade_available"] is True
+        assert "osrm_reachable" not in body["checks"]
+
     def test_osrm_error_response_still_counts_as_reachable(
         self, app: TestClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
