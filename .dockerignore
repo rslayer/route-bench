@@ -1,0 +1,17 @@
+# Applies to both image builds (API and web), which use the repo root as context.
+**/node_modules
+**/.next
+**/.git
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/*.pyc
+# Local runtime data — sessions, matrix cache, OSRM graphs. Never ship these.
+data/sessions
+data/matrix-cache
+osrm-data
+web/test-results
+web/playwright-report
+.env

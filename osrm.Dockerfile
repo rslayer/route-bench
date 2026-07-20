@@ -40,5 +40,9 @@ COPY --from=graph /data /data
 
 EXPOSE 5000
 # --max-table-size must exceed the largest matrix RouteBench requests, which is
-# the fleet benchmark at (total stops + depots)^2. 10000 covers 100 locations.
-CMD ["osrm-routed", "--algorithm", "mld", "/data/region.osrm", "--max-table-size", "10000"]
+# the fleet benchmark over every stop: (total stops + depot)^2. The fleet
+# benchmark is capped at 300 stops (MAX_FLEET_BENCHMARK_STOPS), so 301^2 ≈ 90.6k
+# elements. 10000 covered only ~100 locations, so any fleet past 100 stops got
+# a TooBig error → the API fell back to haversine and withheld the grade even
+# though OSRM was up and healthy. 100000 covers the whole supported range.
+CMD ["osrm-routed", "--algorithm", "mld", "/data/region.osrm", "--max-table-size", "100000"]

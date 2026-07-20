@@ -109,8 +109,14 @@ curl -s https://routebench.fly.dev/healthz | jq
 # matrix_mode: "osrm", grade_available: true
 ```
 
-If `matrix_mode` is `haversine_estimates`, the API cannot reach OSRM — check
-step 1 and that `OSRM_HOST` in `fly.toml` matches the OSRM app name.
+`/healthz` returns **200 while OSRM is down** — `status: "degraded"`,
+`matrix_mode: "haversine_estimates"`, `grade_available: false` — because the API
+still serves (estimates, grade withheld) and the Fly health check must not pull
+a working-but-degraded machine out of rotation. Only unreachable **storage** is
+a hard 503, since with nowhere to write a session the API genuinely cannot
+function. So if `matrix_mode` is `haversine_estimates`, the API cannot reach
+OSRM — check step 1 and that `OSRM_HOST` in `fly.toml` matches the OSRM app
+name — but the site is up.
 
 ---
 
@@ -192,3 +198,15 @@ it — but only Google ships today.
 - **Single API machine.** The budget ledger is a single-writer append, so the
   API is not horizontally scaled (`min`/`max` one machine). This is fine for the
   expected load; revisit if it changes.
+- **OSRM is publicly reachable.** `routebench-osrm` has an `http_service`, so it
+  gets a public `*.fly.dev` URL with no auth — anyone who finds it can use your
+  OSRM as a free routing service and run up compute. The API only ever calls it
+  over the private `.internal` network, so once you have confirmed the deploy you
+  can drop OSRM's public IPs to make it internal-only:
+  ```bash
+  fly ips list -a routebench-osrm      # see what is allocated
+  fly ips release <ip> -a routebench-osrm
+  ```
+  Left as a deliberate post-deploy step rather than baked in, because a
+  misconfigured private-networking change is hard to tell apart from "OSRM is
+  simply down" — verify the happy path first, then lock it down.

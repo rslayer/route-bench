@@ -11,11 +11,12 @@ services:
     # straight after bootstrapping with no arguments.
     #
     # --max-table-size must exceed the largest matrix RouteBench asks for, which
-    # is the fleet benchmark: (total stops + depots)^2. The 10000 default here
-    # covers 100 locations; a bigger fleet needs a bigger number or OSRM returns
-    # TooBig and the run silently falls back to haversine estimates.
+    # is the fleet benchmark over every stop: (total stops + depot)^2. The fleet
+    # benchmark caps at 300 stops, so 301^2 ~= 90.6k. 10000 covered only ~100
+    # locations, so a bigger fleet got TooBig and silently fell back to haversine
+    # estimates even with OSRM up. 100000 covers the whole supported range.
     command: >
-      osrm-routed --algorithm mld --max-table-size 10000
+      osrm-routed --algorithm mld --max-table-size 100000
       /data/${OSRM_REGION:-texas-latest}.osrm
     healthcheck:
       # Any well-formed query proves the graph loaded. Without this, `depends_on`
