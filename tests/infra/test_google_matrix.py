@@ -16,7 +16,8 @@ import httpx
 import pytest
 
 from routebench.core.exceptions import MatrixUnavailableError
-from routebench.infra.matrix.google import GoogleMatrixProvider
+from routebench.core.schemas import Fleet, Route, Stop
+from routebench.infra.matrix.google import GoogleMatrixProvider, estimate_run_cost_usd
 
 
 class _FakeResponse:
@@ -231,3 +232,47 @@ class TestDepartureTime:
         )
         # Same day, within the week — not rolled.
         assert abs((sent - future).total_seconds()) < 60
+
+
+def _route(route_id: str, n_stops: int) -> Route:
+    from datetime import UTC, datetime
+
+    return Route(
+        route_id=route_id,
+        stops=[
+            Stop(route_id=route_id, stop_sequence=i, latitude=32.8, longitude=-96.8)
+            for i in range(1, n_stops + 1)
+        ],
+        depot_lat=32.79,
+        depot_lon=-96.80,
+        planned_start_time=datetime(2025, 1, 1, 8, 0, tzinfo=UTC),
+    )
+
+
+def _fleet(*sizes: int) -> Fleet:
+    from datetime import UTC, datetime
+
+    return Fleet(
+        routes=[_route(f"R{i}", n) for i, n in enumerate(sizes)],
+        upload_id="t",
+        uploaded_at=datetime(2025, 1, 1, tzinfo=UTC),
+    )
+
+
+class TestCostEstimate:
+    def test_single_route_with_benchmark(self) -> None:
+        # 1 route, 3 stops: per-route (3+1)^2 = 16; fleet (3+1)^2 = 16; total 32.
+        assert estimate_run_cost_usd(_fleet(3), include_benchmark=True) == pytest.approx(0.32)
+
+    def test_single_route_without_benchmark(self) -> None:
+        # No fleet matrix: just the per-route 16 elements.
+        assert estimate_run_cost_usd(_fleet(3), include_benchmark=False) == pytest.approx(0.16)
+
+    def test_multi_route(self) -> None:
+        # routes 3 and 4 stops: (4)^2 + (5)^2 = 41; fleet total_stops 7 -> (8)^2 = 64; 105.
+        assert estimate_run_cost_usd(_fleet(3, 4), include_benchmark=True) == pytest.approx(1.05)
+
+    def test_grows_with_the_square_of_fleet_size(self) -> None:
+        small = estimate_run_cost_usd(_fleet(10), include_benchmark=True)
+        big = estimate_run_cost_usd(_fleet(20), include_benchmark=True)
+        assert big > 3 * small  # quadratic, not linear

@@ -23,6 +23,7 @@ import httpx
 import structlog
 
 from routebench.core.exceptions import MatrixUnavailableError
+from routebench.core.schemas import Fleet
 from routebench.infra.matrix.base import MatrixResult
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger()
@@ -36,8 +37,8 @@ _MAX_ORIGINS_PER_REQUEST = 25
 _MAX_DESTINATIONS_PER_REQUEST = 25
 
 # Advanced tier (required for TRAFFIC_AWARE) is roughly USD 10 per 1000 elements.
-# Used only to populate MatrixResult.cost_estimate so the spend is visible in
-# telemetry; it is not a billing source of truth.
+# Used to populate MatrixResult.cost_estimate and to estimate a run's spend for
+# the daily matrix cap. Not a billing source of truth — the Google console is.
 _USD_PER_ELEMENT = 0.01
 
 _DEFAULT_TIMEOUT_SECONDS = 30.0
@@ -243,3 +244,25 @@ def _parse_element(el: dict[str, object]) -> tuple[float, float]:
     except (TypeError, ValueError):
         return float("inf"), float("inf")
     return seconds, meters
+
+
+def estimate_run_cost_usd(fleet: Fleet, include_benchmark: bool) -> float:
+    """Upfront, deterministic estimate of one run's Google matrix spend, in USD.
+
+    Google bills per element (origins x destinations). A run fetches one square
+    matrix per route for scoring and the route benchmark — (stops + depot)^2 —
+    and, when the fleet benchmark runs, one combined matrix over every stop —
+    (total stops + depot)^2. This is the no-cache worst case, which is exactly
+    what a spend cap should meter: it never under-counts, so it cannot let the
+    bill run past the cap by trusting cache hits that might not happen.
+    """
+    total_stops = 0
+    elements = 0
+    for route in fleet.routes:
+        n = len(route.stops) + 1  # + depot
+        elements += n * n
+        total_stops += len(route.stops)
+    if include_benchmark:
+        fleet_n = total_stops + 1
+        elements += fleet_n * fleet_n
+    return round(elements * _USD_PER_ELEMENT, 4)
