@@ -77,6 +77,18 @@ class TestValidCSV:
         assert fleet.total_stops() == 3
         assert report.errors == []
 
+    def test_header_only_csv_is_rejected(self, tmp_path: Path) -> None:
+        """A header row with no data has the required columns, so it used to be
+        accepted and 'succeed' as an empty analysis. Reject it at the door."""
+        csv_path = tmp_path / "empty.csv"
+        csv_path.write_text("route_id,stop_sequence,latitude,longitude\n")
+
+        fleet, report = validate_csv(csv_path)
+
+        assert fleet is None
+        assert report.is_valid is False
+        assert any(e.code == "NO_DATA_ROWS" for e in report.errors)
+
     def test_valid_multi_route(self, tmp_path: Path) -> None:
         """Multiple routes in one CSV are parsed correctly."""
         rows = _minimal_rows("R001", 2) + _minimal_rows("R002", 4)
