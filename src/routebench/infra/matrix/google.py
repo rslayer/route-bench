@@ -51,6 +51,9 @@ class GoogleMatrixProvider:
     """Traffic-aware matrix provider backed by Google Routes computeRouteMatrix."""
 
     name: str = "google"
+    # Live traffic: the answer depends on the departure time, so callers should
+    # pass the plan's start time rather than defaulting to "now".
+    is_time_aware: bool = True
 
     def __init__(
         self,
@@ -74,11 +77,13 @@ class GoogleMatrixProvider:
         """Fetch a traffic-aware origin-destination matrix from Google.
 
         `departure_time` (or, failing that, the earliest `origin_departure_times`)
-        chooses the traffic conditions. Google predicts only forward, so a time
-        in the past is rolled forward whole weeks — preserving day-of-week and
-        time-of-day — so benchmarking last Tuesday's 8am plan uses next Tuesday's
-        8am traffic rather than being rejected. With neither supplied it uses the
-        current time (live traffic).
+        chooses the traffic conditions. The analysis threads the plan's start
+        time in here because this provider is time-aware, so a plan is graded
+        against the traffic it would actually face rather than "now". Google
+        predicts only forward, so a time in the past is rolled forward whole
+        weeks — preserving day-of-week and time-of-day — so benchmarking last
+        Tuesday's 8am plan uses next Tuesday's 8am traffic rather than being
+        rejected. With neither supplied it falls back to the current time.
 
         Raises MatrixUnavailableError on any failure so the fallback engages.
         """

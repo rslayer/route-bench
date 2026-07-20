@@ -51,6 +51,23 @@ class MatrixProvider(Protocol):
 
     name: str
 
+    @property
+    def is_time_aware(self) -> bool:
+        """Whether this provider's result depends on WHEN the trip is driven.
+
+        A live-traffic engine (Google) and the time-banding wrapper do; OSRM's
+        free-flow times and the haversine estimate do not. Callers use this to
+        decide whether to pass the plan's departure time at all: handing a
+        departure time to a time-agnostic provider is not wrong, but it
+        fragments a wrapping cache by a value that never changes the answer. So
+        the call sites pass it only when the provider will actually use it.
+
+        Declared as a read-only property so both plain class attributes (the
+        leaf providers) and delegating properties (the cache/fallback wrappers)
+        satisfy it.
+        """
+        ...
+
     def get_matrix(
         self,
         origins: list[tuple[float, float]],

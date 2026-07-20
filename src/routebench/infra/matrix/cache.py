@@ -80,6 +80,13 @@ class CachedMatrixProvider:
         # and a deployment that never fetches a matrix has no reason to have one.
         self.name = f"cached_{backend.name}"
 
+    @property
+    def is_time_aware(self) -> bool:
+        """Reflects what is being cached — the cache adds no time awareness of
+        its own. It DOES key on departure_time, so a time-aware backend caches
+        correctly per time; a time-agnostic one is simply never handed one."""
+        return self.backend.is_time_aware
+
     def _backend_profile_hash(self) -> str | None:
         """Profile hash of the wrapped backend, if it applies a traffic profile.
 

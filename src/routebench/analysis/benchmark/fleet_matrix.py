@@ -114,7 +114,20 @@ def get_fleet_matrix(
     do not share one depot.
     """
     coords = fleet_coords(fleet)
-    free_flow = matrix_provider.get_matrix(coords, coords)
+
+    # One matrix spans every route, so there is no single start time — use the
+    # median of the routes' start times as the representative departure, the
+    # same lower-median this module already uses to collapse per-vehicle depot
+    # departures. Only computed for a time-aware engine; OSRM/haversine are not
+    # handed it, leaving their cache unfragmented. Passed on both passes so the
+    # banded pass shares the free-flow pass's memo/cache key.
+    depart = (
+        _median_datetime([r.planned_start_time for r in fleet.routes])
+        if getattr(matrix_provider, "is_time_aware", False)
+        else None
+    )
+
+    free_flow = matrix_provider.get_matrix(coords, coords, departure_time=depart)
 
     profile = getattr(matrix_provider, "profile", None)
     banding = isinstance(profile, TrafficProfile) and profile.is_active
@@ -134,4 +147,6 @@ def get_fleet_matrix(
         n_nodes=len(coords),
         depot_departure=departures[0].isoformat(),
     )
-    return matrix_provider.get_matrix(coords, coords, origin_departure_times=departures)
+    return matrix_provider.get_matrix(
+        coords, coords, departure_time=depart, origin_departure_times=departures
+    )
