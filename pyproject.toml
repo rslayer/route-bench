@@ -19,7 +19,6 @@ dependencies = [
     "altair",
     "vl-convert-python",
     "structlog",
-    "streamlit",
     "python-multipart",
     "httpx",
     "fastapi>=0.115",

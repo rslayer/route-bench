@@ -1,0 +1,162 @@
+# Deploying RouteBench to Fly.io
+
+RouteBench is three services, deployed as three Fly apps:
+
+| App | What | Config |
+| --- | --- | --- |
+| `routebench` | FastAPI API | `fly.toml` |
+| `routebench-osrm` | OSRM routing engine, graph baked in | `fly.osrm.toml` |
+| `routebench-web` | Next.js frontend | `fly.web.toml` |
+
+Session artifacts live in **Cloudflare R2** (or any S3-compatible store), not on
+the machine — Fly disks are ephemeral, and a redeploy would otherwise wipe every
+report. Only the matrix cache sits on a small Fly volume.
+
+This is a real deploy: it needs a Fly account, an R2 bucket, and it costs money
+(three small machines plus object storage). None of it is automated — run the
+steps below by hand the first time, in order.
+
+---
+
+## 0. One-time prerequisites
+
+- `fly` CLI installed and `fly auth login` done.
+- A Cloudflare R2 bucket (or S3/MinIO). Note its **endpoint URL**, **access key
+  id**, **secret access key**, and **bucket name**.
+- Optionally an Anthropic API key. Without it the analysis still runs — findings
+  are filled from templates instead of written prose — so you can ship first and
+  add it later.
+
+Create the three apps (no deploy yet):
+
+```bash
+fly apps create routebench
+fly apps create routebench-osrm
+fly apps create routebench-web
+```
+
+---
+
+## 1. OSRM (deploy first — the API waits on it)
+
+The graph is built into the image, so this is one command. It is the slowest
+step: it downloads a regional extract (a US state is ~1 GB) and runs the full
+extract/partition/customize pipeline in the builder.
+
+```bash
+fly deploy -c fly.osrm.toml
+```
+
+The default region is Texas, which covers the bundled Dallas sample. For a
+different region, or a smaller/faster build, override the extract URL:
+
+```bash
+# A whole country/state from Geofabrik:
+fly deploy -c fly.osrm.toml \
+  --build-arg OSRM_PBF_URL=https://download.geofabrik.de/europe/monaco-latest.osm.pbf
+
+# A single metro (much smaller, much faster) from https://extract.bbbike.org
+```
+
+If the build runs out of memory, use a larger remote builder
+(`fly deploy -c fly.osrm.toml --vm-memory 4096`) — `osrm-extract` needs RAM
+roughly equal to the `.pbf` size.
+
+Verify it is serving its graph (not just up):
+
+```bash
+fly ssh console -a routebench-osrm -C \
+  "wget -qO- 'http://localhost:5000/nearest/v1/driving/-96.797,32.777'"
+# expect JSON containing "waypoints"
+```
+
+---
+
+## 2. API
+
+Set the secrets **before** the first deploy. `fly.toml` already sets
+`STORAGE_BACKEND=s3` and points `OSRM_HOST` at the sidecar; these are the values
+it cannot ship in plaintext:
+
+```bash
+fly secrets set -a routebench \
+  R2_ENDPOINT="https://<accountid>.r2.cloudflarestorage.com" \
+  R2_ACCESS_KEY_ID="..." \
+  R2_SECRET_ACCESS_KEY="..." \
+  R2_BUCKET="routebench" \
+  WEB_ORIGIN="https://routebench-web.fly.dev" \
+  ADMIN_TOKEN="$(openssl rand -hex 32)"
+
+# Optional — enables written prose instead of templated findings:
+fly secrets set -a routebench ANTHROPIC_API_KEY="sk-ant-..."
+```
+
+`WEB_ORIGIN` **must** match the web app's public URL exactly, or the browser's
+cross-origin calls are refused and the upload button fails with no server error.
+If you put the web app on a custom domain, set `WEB_ORIGIN` to that domain.
+
+Deploy, stamping the build with the commit so `/health` reports a real version:
+
+```bash
+fly deploy -c fly.toml --build-arg GIT_SHA=$(git rev-parse HEAD)
+```
+
+Verify:
+
+```bash
+curl -s https://routebench.fly.dev/healthz | jq
+# status: "ok", checks.storage_writable: true, checks.osrm_reachable: true,
+# matrix_mode: "osrm", grade_available: true
+```
+
+If `matrix_mode` is `haversine_estimates`, the API cannot reach OSRM — check
+step 1 and that `OSRM_HOST` in `fly.toml` matches the OSRM app name.
+
+---
+
+## 3. Web frontend
+
+The API base URL is **baked into the build** (`NEXT_PUBLIC_*` is compiled into
+the client bundle, not read at runtime), so it is a `--build-arg`, and changing
+the API URL later means rebuilding this app:
+
+```bash
+fly deploy -c fly.web.toml \
+  --build-arg NEXT_PUBLIC_API_BASE=https://routebench.fly.dev
+```
+
+Then open `https://routebench-web.fly.dev` and run the sample fleet through it.
+
+---
+
+## Environment variables reference
+
+Set as Fly **secrets** (sensitive) or in `fly.toml` `[env]` (not sensitive).
+
+| Variable | Where | Required | Notes |
+| --- | --- | --- | --- |
+| `STORAGE_BACKEND` | fly.toml env | yes | `s3` in production |
+| `R2_ENDPOINT` | secret | yes | R2/S3 endpoint URL |
+| `R2_ACCESS_KEY_ID` | secret | yes | |
+| `R2_SECRET_ACCESS_KEY` | secret | yes | |
+| `R2_BUCKET` | secret or env | yes | default `routebench` |
+| `R2_REGION` | env | no | default `auto` (R2) |
+| `OSRM_HOST` | fly.toml env | yes | `http://routebench-osrm.internal:5000` |
+| `WEB_ORIGIN` | secret | yes | exact web origin, for CORS |
+| `ANTHROPIC_API_KEY` | secret | no | omit → templated prose |
+| `ADMIN_TOKEN` | secret | recommended | gates `/admin/*`; empty fails closed |
+| `MATRIX_CACHE_PATH` | fly.toml env | no | on the volume, set already |
+| `DAILY_BUDGET_USD` | env | no | LLM spend cap; degrades, does not 503 |
+| `NEXT_PUBLIC_API_BASE` | web build-arg | yes | the API's public URL |
+
+---
+
+## What is NOT set up
+
+- **No CD.** Deploys are the manual `fly deploy` commands above. A GitHub Action
+  could run them on push to `main` once you are happy deploying that way.
+- **No custom domain.** The `.fly.dev` hostnames work out of the box; add a
+  domain with `fly certs` and update `WEB_ORIGIN` + `NEXT_PUBLIC_API_BASE`.
+- **Single API machine.** The budget ledger is a single-writer append, so the
+  API is not horizontally scaled (`min`/`max` one machine). This is fine for the
+  expected load; revisit if it changes.

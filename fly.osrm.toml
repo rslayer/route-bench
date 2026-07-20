@@ -1,10 +1,19 @@
-# fly.osrm.toml — OSRM sidecar app
+# fly.osrm.toml — OSRM sidecar (routebench-osrm)
+#
+# Built from osrm.Dockerfile, which bakes the road-network graph into the image.
+# No volume, no manual graph provisioning: the graph ships with the engine, and
+# the runtime path (/data/region.osrm) is produced by that build. Reachable from
+# the API over Fly's private network at http://routebench-osrm.internal:5000.
+#
+# To change region, override the build arg (see osrm.Dockerfile):
+#   fly deploy -c fly.osrm.toml \
+#     --build-arg OSRM_PBF_URL=https://download.geofabrik.de/<region>-latest.osm.pbf
 
 app = "routebench-osrm"
 primary_region = "dfw"
 
 [build]
-  image = "osrm/osrm-backend:latest"
+  dockerfile = "osrm.Dockerfile"
 
 [http_service]
   internal_port = 5000
@@ -13,13 +22,9 @@ primary_region = "dfw"
   auto_start_machines = true
   min_machines_running = 1
 
-[mounts]
-  source = "osrm_data"
-  destination = "/data"
-
-[processes]
-  app = "osrm-routed --algorithm mld /data/region.osrm --max-table-size 10000"
-
+# Memory must exceed the loaded graph; a US-state MLD graph is comfortable at
+# 2gb, a metro extract needs far less. Raise this if osrm-routed is OOM-killed
+# on boot with a larger region.
 [[vm]]
   size = "shared-cpu-2x"
   memory = "2gb"
