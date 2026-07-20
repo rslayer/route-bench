@@ -85,7 +85,15 @@ def get_route_matrix(
     for stop in route.stops:
         coords.append((stop.latitude, stop.longitude))
 
-    free_flow = matrix_provider.get_matrix(coords, coords)
+    # A live-traffic engine grades against the traffic the plan would actually
+    # face, so give it the plan's start time rather than letting it default to
+    # "now". Time-agnostic engines (OSRM, haversine) ignore it — and are not
+    # handed it, so their cache is not fragmented by a value that never changes
+    # their answer. Passed on BOTH passes below so the banded second pass shares
+    # the memo/cache key with the free-flow first pass.
+    depart = route.planned_start_time if getattr(matrix_provider, "is_time_aware", False) else None
+
+    free_flow = matrix_provider.get_matrix(coords, coords, departure_time=depart)
 
     # isinstance rather than a truthiness check: getattr on a mock or proxy
     # auto-creates a truthy attribute, which would drag callers that never asked
@@ -106,4 +114,6 @@ def get_route_matrix(
         return free_flow
 
     departures = compute_departure_schedule(route, free_flow, work_rules)
-    return matrix_provider.get_matrix(coords, coords, origin_departure_times=departures)
+    return matrix_provider.get_matrix(
+        coords, coords, departure_time=depart, origin_departure_times=departures
+    )

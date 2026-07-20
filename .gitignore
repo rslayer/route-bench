@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 data/sessions/
+data/matrix-cache/
 data/telemetry/
 osrm-data/
 .env
@@ -23,3 +24,6 @@ web/next-env.d.ts
 web/*.tsbuildinfo
 web/playwright-report/
 web/test-results/
+
+# macOS
+.DS_Store

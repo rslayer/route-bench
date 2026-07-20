@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import structlog
 from fastapi import FastAPI
@@ -23,6 +24,8 @@ from routebench.app.telemetry_sink import TelemetrySink
 from routebench.app.worker import SessionWorker
 from routebench.core.config import Settings
 from routebench.core.version import package_version
+from routebench.infra.matrix.base import MatrixProvider
+from routebench.infra.matrix.cache import CachedMatrixProvider
 from routebench.infra.matrix.fallback import FallbackMatrixProvider
 from routebench.infra.matrix.haversine import HaversineMatrixProvider
 from routebench.infra.matrix.osrm import OSRMMatrixProvider
@@ -45,6 +48,26 @@ def _build_storage(settings: Settings) -> StorageBackend:
             region=settings.r2_region,
         )
     return LocalStorageBackend(base_path=settings.storage_path)
+
+
+def _build_primary_matrix_provider(settings: Settings) -> MatrixProvider:
+    """Select the primary matrix engine from config, mirroring `_build_storage`.
+
+    "google" is imported lazily so a deployment that never uses it does not pay
+    the import, and an operator who selects it without a key fails at startup —
+    a clear configuration error — rather than 403-ing on the first matrix call
+    partway through an analysis.
+    """
+    if settings.matrix_engine == "google":
+        from routebench.infra.matrix.google import GoogleMatrixProvider
+
+        if not settings.google_maps_api_key:
+            raise ValueError(
+                "matrix_engine is 'google' but GOOGLE_MAPS_API_KEY is not set. "
+                "Set the key or switch matrix_engine back to 'osrm'."
+            )
+        return GoogleMatrixProvider(api_key=settings.google_maps_api_key)
+    return OSRMMatrixProvider(host=settings.osrm_host)
 
 
 def _configure_logging(log_level: str) -> None:
@@ -96,14 +119,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     logger.info("basemap_configured", tile_source=tile_source.name, enabled=tile_source.enabled)
 
     storage = _build_storage(settings)
-    # OSRM is the real source of road-network travel times, but it must not be a
-    # single point of failure for the whole service: unwrapped, an unreachable
-    # OSRM meant every upload was accepted with a 202 and then died at 15%. The
-    # haversine fallback keeps the site answering with clearly-labelled
-    # estimates, and the pipeline withholds the quality grade when it sees them.
+    # The primary engine (OSRM or Google) is the real source of road-network
+    # travel times, but it must not be a single point of failure: unwrapped, an
+    # unreachable engine meant every upload was accepted with a 202 and then
+    # died at 15%. The haversine fallback keeps the site answering with
+    # clearly-labelled estimates, and the pipeline withholds the quality grade
+    # when it sees them.
+    #
+    # The cache wraps the primary and sits *inside* the fallback, not outside
+    # it. That ordering matters: a cache above the fallback would happily store
+    # haversine estimates, so a brief engine outage would serve them for the
+    # cache lifetime long after the engine recovered. Here, an engine failure
+    # raises straight through the cache to the fallback and nothing approximate
+    # is ever written.
+    primary = _build_primary_matrix_provider(settings)
+    if settings.matrix_cache_enabled:
+        primary = CachedMatrixProvider(backend=primary, cache_dir=Path(settings.matrix_cache_path))
     matrix_provider = FallbackMatrixProvider(
-        primary=OSRMMatrixProvider(host=settings.osrm_host),
+        primary=primary,
         fallback=HaversineMatrixProvider(),
+    )
+    logger.info(
+        "matrix_provider_configured",
+        provider=matrix_provider.name,
+        engine=settings.matrix_engine,
+        cache_enabled=settings.matrix_cache_enabled,
     )
     llm_client = LLMClient(api_key=settings.anthropic_api_key, model=settings.claude_model)
 
@@ -226,8 +266,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(admin_router)
 
     # Serve sample reports as static files
-    from pathlib import Path
-
     samples_dir = Path(__file__).parent.parent.parent.parent / "data" / "samples"
     if samples_dir.exists():
         app.mount("/samples", StaticFiles(directory=str(samples_dir)), name="samples")

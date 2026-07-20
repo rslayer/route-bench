@@ -91,6 +91,18 @@ class S3StorageBackend:
             )
             return url
 
+    async def delete_file(self, session_id: str, filename: str) -> bool:
+        key = self._key(session_id, filename)
+        async with self._session.client(**self._boto_config()) as s3:
+            # delete_object succeeds on a missing key, so existence has to be
+            # checked separately for the return value to mean anything.
+            try:
+                await s3.head_object(Bucket=self._bucket, Key=key)
+            except Exception:
+                return False
+            await s3.delete_object(Bucket=self._bucket, Key=key)
+            return True
+
     async def delete_session(self, session_id: str) -> None:
         prefix = f"sessions/{session_id}/"
         async with self._session.client(**self._boto_config()) as s3:

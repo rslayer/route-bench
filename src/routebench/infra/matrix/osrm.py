@@ -32,6 +32,8 @@ class OSRMMatrixProvider:
     """Matrix provider backed by a self-hosted OSRM instance."""
 
     name: str = "osrm"
+    # Free-flow times: the same trip is the same duration whenever it is driven.
+    is_time_aware: bool = False
 
     def __init__(
         self,

@@ -33,6 +33,14 @@ class FallbackMatrixProvider:
         self.fallback = fallback
         self.name = f"{primary.name}_or_{fallback.name}"
 
+    @property
+    def is_time_aware(self) -> bool:
+        """Follows the primary. The whole point of a departure time is to feed
+        the real engine; if it is up, this is time-aware. When it falls through
+        to the haversine estimate the departure time is simply ignored, which is
+        correct — a straight-line fallback has no time model to apply anyway."""
+        return self.primary.is_time_aware
+
     def get_matrix(
         self,
         origins: list[tuple[float, float]],

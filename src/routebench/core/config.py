@@ -9,10 +9,20 @@ import hashlib
 import json
 from datetime import time
 from itertools import pairwise
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# The repository root, so the .env file is found regardless of the working
+# directory the process was launched from. This module is
+# src/routebench/core/config.py, so the root is three parents up. env_file=".env"
+# resolves against the cwd, which silently loaded nothing — and therefore
+# silently disabled CORS — whenever the app was started from anywhere but the
+# repo root (a launcher targeting the project by path, a container WORKDIR, a
+# monorepo parent). An absolute anchor removes that failure mode.
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 
 # Claude pricing (per 1M tokens)
 CLAUDE_INPUT_PRICE_PER_M: float = 3.0
@@ -195,9 +205,16 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_REPO_ROOT / ".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        # Ignore, not forbid: a single .env is shared with docker-compose, which
+        # reads keys the app never sees (OSRM_REGION locates the graph for the
+        # OSRM container). Forbidding extras crashed the app on startup the
+        # moment such a key appeared in .env. The nested models above keep
+        # extra="forbid" — those parse trusted internal payloads, not a file an
+        # operator hand-edits and shares with other tools.
+        extra="ignore",
     )
 
     # LLM
@@ -210,8 +227,44 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     claude_model: str = "claude-opus-4-8"
 
+    # Which engine computes the origin-destination matrix.
+    #
+    # "osrm" (default) — self-hosted, free-flow times, no per-request cost.
+    # "google" — Google Routes computeRouteMatrix with live traffic. Needs
+    #   google_maps_api_key and bills per element (origins x destinations), so
+    #   it is off unless deliberately selected. When active it returns real
+    #   traffic-adjusted times directly, and the per-upload traffic profile
+    #   (the free-flow band multiplier) is not applied on top — that would
+    #   double-count congestion.
+    #
+    # Whatever the engine, the haversine fallback still catches an outage, and
+    # the grade is withheld on an approximate result. Selecting "google" with
+    # no key is a configuration error caught at startup rather than a silent
+    # fall-through to OSRM.
+    matrix_engine: Literal["osrm", "google"] = "osrm"
+
     # OSRM
     osrm_host: str = "http://localhost:5000"
+
+    # Google Routes API key, used only when matrix_engine == "google". Set as a
+    # deployment secret, never entered in the web UI — a routing key is a
+    # billable credential and must not transit the frontend or land in a
+    # per-upload config.
+    google_maps_api_key: str = ""
+
+    # Filesystem cache for OSRM matrices. Wraps OSRM only, never the fallback,
+    # so a cache hit is always a real road-network answer. Approximate results
+    # are refused by the cache itself as a second line of defence.
+    #
+    # On by default: matrix calls dominate wall-clock on repeat uploads of the
+    # same territory, and the cache key is content-addressed, so a stale entry
+    # is only possible if the road network itself changed. Point this at a
+    # persistent volume in production or it warms from cold on every deploy.
+    matrix_cache_enabled: bool = True
+    # Repo-root-anchored like storage_path, so the cache is one directory rather
+    # than one per launch cwd. A deployment overrides with an absolute path on a
+    # persistent volume.
+    matrix_cache_path: str = str(_REPO_ROOT / "data" / "matrix-cache")
 
     # Basemap tiles for the report's route images. See infra/tiles.py.
     #
@@ -234,7 +287,12 @@ class Settings(BaseSettings):
 
     # General
     log_level: str = "INFO"
-    storage_path: str = "./data/sessions"
+    # Anchored to the repo root, not "./data/sessions", for the same reason as
+    # env_file: a cwd-relative default scatters session artifacts into whatever
+    # directory the process happened to start in — and, worse, hides sessions
+    # written by a run started from a different directory. A deployment sets an
+    # absolute STORAGE_PATH (docker uses /data/sessions) which overrides this.
+    storage_path: str = str(_REPO_ROOT / "data" / "sessions")
 
     # Storage backend
     storage_backend: Literal["local", "s3"] = "local"

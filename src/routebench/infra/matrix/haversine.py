@@ -59,6 +59,8 @@ class HaversineMatrixProvider:
     """
 
     name = "haversine"
+    # A straight-line estimate has no notion of time of day.
+    is_time_aware: bool = False
 
     def __init__(
         self,

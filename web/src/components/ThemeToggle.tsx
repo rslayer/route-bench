@@ -48,8 +48,12 @@ export default function ThemeToggle() {
     setChoice(next);
     applyTheme(next);
     try {
-      if (next === "system") window.localStorage.removeItem(THEME_KEY);
-      else window.localStorage.setItem(THEME_KEY, next);
+      // Store all three choices explicitly, "system" included. This used to
+      // remove the key for "system" on the logic that an absent key WAS system
+      // — but the default is now light, so an absent key reads as light. Storing
+      // "system" is what makes the choice survive a reload; removing it would
+      // silently revert the user to light next time they load the page.
+      window.localStorage.setItem(THEME_KEY, next);
     } catch {
       // Private mode. The theme still applies for this page view; it just will
       // not be remembered.

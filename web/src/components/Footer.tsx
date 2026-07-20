@@ -63,6 +63,10 @@ export default async function Footer() {
           <span className="footer-sep" aria-hidden="true">
             ·
           </span>
+          <a href="/privacy">Privacy</a>
+          <span className="footer-sep" aria-hidden="true">
+            ·
+          </span>
           <span>
             Source-available under{" "}
             <a

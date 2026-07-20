@@ -16,7 +16,7 @@ Four-layer pipeline:
 ### Hosted Architecture (Phase 8+9)
 
 ```
-Streamlit UI  -->  FastAPI API  -->  SessionWorker  -->  Pipeline
+Next.js web  -->  FastAPI API  -->  SessionWorker  -->  Pipeline
                     |                     |
                     v                     v
                Rate Limiter         Async Queue (depth=5)
@@ -57,58 +57,69 @@ cp .env.example .env
 
 RouteBench uses a self-hosted OSRM instance for driving distance/time matrices.
 
+**Without OSRM, RouteBench still runs but withholds the grade.** Travel times fall
+back to straight-line estimates with a 1.3 detour factor, every number is labelled
+approximate, and the scorecard shows "Withheld" instead of a letter. That is a
+deliberate floor, not a substitute — a grade computed on estimated distances would
+look authoritative and be wrong.
+
 ### One-time data preparation
 
-Download a regional extract from [Geofabrik](https://download.geofabrik.de/) (start with Texas):
-
 ```bash
-mkdir -p osrm-data
-cd osrm-data
-
-# Download the extract
-wget https://download.geofabrik.de/north-america/us/texas-latest.osm.pbf
-
-# Pre-process the data (this takes a few minutes)
-docker run -t -v $(pwd):/data osrm/osrm-backend osrm-extract -p /opt/car.lua /data/texas-latest.osm.pbf
-docker run -t -v $(pwd):/data osrm/osrm-backend osrm-partition /data/texas-latest.osrm
-docker run -t -v $(pwd):/data osrm/osrm-backend osrm-customize /data/texas-latest.osrm
-
-# Rename to the expected filename
-mv texas-latest.osrm region.osrm
-# Also rename all associated files
-for f in texas-latest.osrm.*; do mv "$f" "region.osrm.${f#texas-latest.osrm.}"; done
-
-cd ..
+scripts/bootstrap_osrm.sh              # Texas, the sample fleet's region
+scripts/bootstrap_osrm.sh california
+scripts/bootstrap_osrm.sh --url https://download.geofabrik.de/europe/monaco-latest.osm.pbf
 ```
+
+The script downloads a [Geofabrik](https://download.geofabrik.de/) extract, runs
+`osrm-extract` → `osrm-partition` → `osrm-customize`, and writes `OSRM_REGION` to
+`.env`. It is resumable: an interrupted download is discarded rather than left
+looking complete, and it exits early if the graph is already built.
+
+Budget for it. A US state extract is 0.5–1.5 GB to download, `osrm-extract` wants
+roughly as much RAM as the `.pbf` is large, and the whole pipeline takes 5–20
+minutes. Use a metro-sized extract from [BBBike](https://extract.bbbike.org/) if
+you only need one city.
 
 ### Start OSRM
 
 ```bash
-docker compose up osrm
+docker compose up -d osrm
 ```
 
-Verify it's running:
+Verify — this should return a `durations` matrix, not an error:
 
 ```bash
-curl "http://localhost:5000/table/v1/driving/-97.7431,30.2672;-96.7970,32.7767"
+curl -s "http://localhost:5000/table/v1/driving/-96.797,32.777;-96.780,32.800"
 ```
+
+`docker compose up app` waits for OSRM's healthcheck, because OSRM accepts
+connections for several seconds before its graph is queryable. Starting the app
+too early means its first matrix call fails and the run quietly degrades to
+estimates.
+
+### Sizing note
+
+`--max-table-size` must exceed the largest matrix requested, which is the fleet
+benchmark at `(total stops + depots)²`. The default 10000 covers 100 locations.
+Exceed it and OSRM returns `TooBig`, which the fallback catches — so the symptom
+is a withheld grade rather than an error.
 
 ## Run the API Server
 
 ```bash
-# Start FastAPI
+# The API (the frontend lives in web/ — see web/README or `npm --prefix web run dev`)
 uv run uvicorn routebench.app.api.app:create_app --factory --host 0.0.0.0 --port 8000
-
-# Start Streamlit UI (in another terminal)
-uv run streamlit run src/routebench/app/streamlit_app.py
 ```
 
 Or with Docker:
 
 ```bash
 docker build -t routebench .
-docker run -p 8000:8000 -p 8501:8501 --env-file .env routebench
+docker run -p 8000:8000 --env-file .env routebench
 ```
+
+To deploy to a hosted site, see [DEPLOY.md](DEPLOY.md).
 
 ## Run Tests
 
@@ -145,6 +156,8 @@ Key environment variables (see `.env.example`):
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ANTHROPIC_API_KEY` | — | Required for LLM layer |
+| `MATRIX_ENGINE` | `osrm` | `osrm` (free-flow) or `google` (live traffic, billed) |
+| `GOOGLE_MAPS_API_KEY` | — | Required when `MATRIX_ENGINE=google` |
 | `OSRM_HOST` | `http://localhost:5000` | OSRM endpoint |
 | `STORAGE_BACKEND` | `local` | `local` or `s3` |
 | `STORAGE_PATH` | `data/sessions` | Local storage path |
@@ -198,15 +211,10 @@ Omitting `traffic` keeps free-flow behavior, and the report says so. Notes:
 
 ## Deployment
 
-### Fly.io
-
-```bash
-# Main app
-fly deploy -c fly.toml
-
-# OSRM sidecar
-fly deploy -c fly.osrm.toml
-```
+Three Fly.io apps: the API (`fly.toml`), the OSRM sidecar with its graph baked
+in (`fly.osrm.toml`), and the Next.js frontend (`fly.web.toml`). Sessions persist
+to Cloudflare R2. The full runbook — secrets, order, verification — is in
+[DEPLOY.md](DEPLOY.md).
 
 ## Scripts
 
@@ -225,7 +233,7 @@ route-bench/
 │   ├── analysis/       # Scoring, diagnosis, benchmark, visuals
 │   ├── report/         # Jinja2 templates, prose slots, PDF
 │   ├── agent/          # Orchestrator, writer, verifier, prompts
-│   └── app/            # FastAPI, Streamlit, pipeline, worker, sessions
+│   └── app/            # FastAPI, pipeline, worker, sessions
 │       └── api/        # Routes, admin, app factory
 ├── tests/              # 151 tests
 ├── data/

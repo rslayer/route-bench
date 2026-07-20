@@ -225,30 +225,71 @@ async def session_events(request: Request, session_id: str) -> EventSourceRespon
     return EventSourceResponse(event_generator())
 
 
+EXPIRED_DETAIL = (
+    "This session has expired and its data has been deleted. "
+    "Re-upload the file to run a fresh analysis."
+)
+
+
+async def _serve_artifact(
+    request: Request,
+    session_id: str,
+    filename: str,
+    *,
+    media_type: str,
+    missing_detail: str,
+) -> RedirectResponse | Response:
+    """Serve one session artifact, refusing expired sessions.
+
+    Every artifact route goes through here so the expiry check cannot be
+    omitted from one of them. Previously each route asked only `exists()`,
+    which meant an expired session kept serving its report for as long as the
+    file happened to still be on disk — and retention was not deleting the
+    files at all, so that was the full telemetry TTL.
+
+    410 rather than 404: the session did exist, and telling the holder of a
+    valid link "expired" instead of "never heard of it" is both true and more
+    useful. It leaks nothing they did not already know by holding the link.
+    """
+    storage = request.app.state.storage
+    registry: SessionRegistry = request.app.state.registry
+
+    status = await registry.get(session_id)
+    if status is not None and status.state == "expired":
+        raise HTTPException(status_code=410, detail=EXPIRED_DETAIL)
+
+    if not await storage.exists(session_id, filename):
+        raise HTTPException(status_code=404, detail=missing_detail)
+
+    if isinstance(storage, LocalStorageBackend):
+        data = await storage.read(session_id, filename)
+        return Response(content=data, media_type=media_type)
+    url = await storage.presigned_url(session_id, filename)
+    return RedirectResponse(url=url, status_code=302)
+
+
 @router.get("/sessions/{session_id}/report.html", response_model=None)
 async def download_report_html(request: Request, session_id: str) -> RedirectResponse | Response:
     """Redirect to the HTML report (pre-signed URL or serve directly for local storage)."""
-    storage = request.app.state.storage
-    if not await storage.exists(session_id, "report.html"):
-        raise HTTPException(status_code=404, detail="Report not found")
-    if isinstance(storage, LocalStorageBackend):
-        data = await storage.read(session_id, "report.html")
-        return Response(content=data, media_type="text/html")
-    url = await storage.presigned_url(session_id, "report.html")
-    return RedirectResponse(url=url, status_code=302)
+    return await _serve_artifact(
+        request,
+        session_id,
+        "report.html",
+        media_type="text/html",
+        missing_detail="Report not found",
+    )
 
 
 @router.get("/sessions/{session_id}/report.pdf", response_model=None)
 async def download_report_pdf(request: Request, session_id: str) -> RedirectResponse | Response:
     """Redirect to the PDF report (or serve directly for local storage)."""
-    storage = request.app.state.storage
-    if not await storage.exists(session_id, "report.pdf"):
-        raise HTTPException(status_code=404, detail="PDF report not found")
-    if isinstance(storage, LocalStorageBackend):
-        data = await storage.read(session_id, "report.pdf")
-        return Response(content=data, media_type="application/pdf")
-    url = await storage.presigned_url(session_id, "report.pdf")
-    return RedirectResponse(url=url, status_code=302)
+    return await _serve_artifact(
+        request,
+        session_id,
+        "report.pdf",
+        media_type="application/pdf",
+        missing_detail="PDF report not found",
+    )
 
 
 @router.get("/sessions/{session_id}/analysis.json", response_model=None)
@@ -258,14 +299,13 @@ async def download_analysis_json(request: Request, session_id: str) -> RedirectR
     The UI renders from this rather than re-deriving anything: it is the same
     artifact the report was built from, so the page and the PDF cannot disagree.
     """
-    storage = request.app.state.storage
-    if not await storage.exists(session_id, "analysis.json"):
-        raise HTTPException(status_code=404, detail="Analysis not found")
-    if isinstance(storage, LocalStorageBackend):
-        data = await storage.read(session_id, "analysis.json")
-        return Response(content=data, media_type="application/json")
-    url = await storage.presigned_url(session_id, "analysis.json")
-    return RedirectResponse(url=url, status_code=302)
+    return await _serve_artifact(
+        request,
+        session_id,
+        "analysis.json",
+        media_type="application/json",
+        missing_detail="Analysis not found",
+    )
 
 
 @router.get("/sessions/{session_id}/routes.geojson", response_model=None)
@@ -276,14 +316,13 @@ async def download_routes_geojson(request: Request, session_id: str) -> Redirect
     paths); the collection's `geometry_approximate` property says so and the UI
     is expected to surface it.
     """
-    storage = request.app.state.storage
-    if not await storage.exists(session_id, "routes.geojson"):
-        raise HTTPException(status_code=404, detail="Map data not found")
-    if isinstance(storage, LocalStorageBackend):
-        data = await storage.read(session_id, "routes.geojson")
-        return Response(content=data, media_type="application/geo+json")
-    url = await storage.presigned_url(session_id, "routes.geojson")
-    return RedirectResponse(url=url, status_code=302)
+    return await _serve_artifact(
+        request,
+        session_id,
+        "routes.geojson",
+        media_type="application/geo+json",
+        missing_detail="Map data not found",
+    )
 
 
 @router.get("/health")
@@ -310,16 +349,49 @@ async def healthz(request: Request) -> JSONResponse:
     # Check storage
     checks["storage_writable"] = await storage.is_writable()
 
-    # Check OSRM with a lightweight nearest query
+    # Check OSRM with a lightweight nearest query.
+    #
+    # The probe coordinate used to be the literal "0,0", which OSRM rejects with
+    # HTTP 400 `{"code": "InvalidUrl"}` — its URL grammar does not accept that
+    # exact string (0.0,0 and -0,0 fail the same way; 1,1 is fine). Paired with
+    # a `status_code == 200` test, that made healthz report degraded whenever
+    # OSRM was perfectly healthy, which in production means a load balancer
+    # pulls the app out of rotation over a dependency that is fine.
+    #
+    # Worth knowing for anyone tempted to make this probe stricter: OSRM has no
+    # default snapping radius, so /nearest answers *any* in-bounds-syntax
+    # coordinate with 200 and `code: Ok` by snapping to the closest edge in the
+    # graph however far away that is — 1,1 against a Texas-only extract snaps
+    # across the Atlantic and reports success. So this cannot verify which
+    # region is loaded, only that osrm-routed is up and serving. Verifying
+    # coverage would mean passing an explicit `radiuses=` bound and checking
+    # `waypoints[].distance`, which is a different question than readiness.
+    #
+    # Judged on whether OSRM answered *like OSRM*: every response carries a
+    # `code` field, success or failure, so a parseable body proves the process
+    # is serving. A connection error, a timeout, or an HTML error page from a
+    # proxy in front of a not-yet-ready container does not.
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"{settings.osrm_host}/nearest/v1/driving/0,0")
-            checks["osrm_reachable"] = resp.status_code == 200
+            resp = await client.get(f"{settings.osrm_host}/nearest/v1/driving/1,1")
+            if resp.status_code == 200:
+                checks["osrm_reachable"] = True
+            else:
+                body = resp.json()
+                checks["osrm_reachable"] = isinstance(body, dict) and "code" in body
     except Exception:
         checks["osrm_reachable"] = False
 
     all_ok = all(checks.values())
     return JSONResponse(
-        content={"status": "ok" if all_ok else "degraded", "checks": checks},
+        content={
+            "status": "ok" if all_ok else "degraded",
+            "checks": checks,
+            # What the deployment will actually do, not just what is up. A
+            # degraded matrix is the difference between a graded report and a
+            # withheld one, and that should be visible without reading logs.
+            "matrix_mode": "osrm" if checks["osrm_reachable"] else "haversine_estimates",
+            "grade_available": checks["osrm_reachable"],
+        },
         status_code=200 if all_ok else 503,
     )

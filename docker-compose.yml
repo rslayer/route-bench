@@ -6,7 +6,36 @@ services:
       - "5000:5000"
     volumes:
       - ./osrm-data:/data
-    command: osrm-routed --algorithm mld /data/region.osrm
+    # OSRM_REGION is written to .env by scripts/bootstrap_osrm.sh. The default
+    # matches that script's default region so `docker compose up osrm` works
+    # straight after bootstrapping with no arguments.
+    #
+    # --max-table-size must exceed the largest matrix RouteBench asks for, which
+    # is the fleet benchmark: (total stops + depots)^2. The 10000 default here
+    # covers 100 locations; a bigger fleet needs a bigger number or OSRM returns
+    # TooBig and the run silently falls back to haversine estimates.
+    command: >
+      osrm-routed --algorithm mld --max-table-size 10000
+      /data/${OSRM_REGION:-texas-latest}.osrm
+    healthcheck:
+      # Any well-formed query proves the graph loaded. Without this, `depends_on`
+      # only waits for the process to exist — and OSRM accepts connections for
+      # several seconds before the graph is queryable, so the app would start,
+      # fail its first matrix call, and fall back to estimates.
+      # Greps for "waypoints", which only appears in a successful response, so
+      # this waits for the graph rather than merely for the port. OSRM snaps
+      # from any distance (no default radius), so the coordinate need not be
+      # inside the loaded region — but it must not be the literal "0,0", which
+      # OSRM's URL grammar rejects as InvalidUrl.
+      test:
+        - CMD-SHELL
+        - >-
+          wget -qO- "http://localhost:5000/nearest/v1/driving/1,1"
+          | grep -q waypoints
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
     restart: unless-stopped
 
   app:
@@ -14,7 +43,6 @@ services:
     container_name: routebench-app
     ports:
       - "8000:8000"
-      - "8501:8501"
     env_file: .env
     environment:
       - OSRM_HOST=http://osrm:5000
@@ -22,9 +50,15 @@ services:
       - STORAGE_PATH=/data/sessions
     volumes:
       - app-data:/data
+      # The matrix cache is worth persisting across deploys: it is keyed by
+      # coordinates, so a container rebuild otherwise re-asks OSRM for every
+      # matrix it already knew.
+      - matrix-cache:/data/matrix-cache
     depends_on:
-      - osrm
+      osrm:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
   app-data:
+  matrix-cache:

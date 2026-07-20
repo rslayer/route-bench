@@ -77,6 +77,8 @@ class TrafficAdjustedProvider:
     """Applies a TrafficProfile on top of any MatrixProvider's free-flow times."""
 
     name: str = "traffic_adjusted"
+    # Bands each leg by when its origin is left, so the result depends on time.
+    is_time_aware: bool = True
 
     def __init__(self, backend: MatrixProvider, profile: TrafficProfile) -> None:
         self.backend = backend

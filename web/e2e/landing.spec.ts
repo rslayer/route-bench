@@ -130,9 +130,23 @@ test.describe("theme", () => {
     await expect(html).toHaveAttribute("data-theme", "light");
   });
 
-  test("system follows a dark OS", async ({ page }) => {
+  test("a dark OS gets light by default, and only follows the OS when System is chosen", async ({
+    page,
+  }) => {
+    // The default no longer follows the OS: a first-time visitor on a dark-mode
+    // machine still gets a light page, for a predictable first impression on a
+    // document-style tool. (This is a deliberate change from the old
+    // system-is-default behaviour.)
     await page.emulateMedia({ colorScheme: "dark" });
     await page.goto("/");
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    const html = page.locator("html");
+    await expect(html).toHaveAttribute("data-theme", "light");
+
+    // Explicitly choosing System opts back into following the OS, which here is
+    // dark — so this is where the OS preference takes effect.
+    await page.getByRole("radio", { name: "System" }).click();
+    await expect(html).toHaveAttribute("data-theme", "dark");
+    await page.reload();
+    await expect(html).toHaveAttribute("data-theme", "dark");
   });
 });
