@@ -18,7 +18,12 @@ WORKDIR /app
 
 RUN pip install uv
 
-COPY pyproject.toml uv.lock ./
+# README.md is copied here, not with the source below, because uv sync builds
+# this project as an editable install and hatchling validates pyproject's
+# `readme = "README.md"` field during that build — so the file must be present
+# before `uv sync`, or the metadata validation fails with "Readme file does not
+# exist".
+COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --no-dev
 
 COPY src/ src/
