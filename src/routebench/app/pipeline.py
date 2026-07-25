@@ -37,7 +37,7 @@ from routebench.core.config import (
 )
 from routebench.core.exceptions import BudgetExceededError, RouteBenchError
 from routebench.core.validation import validate_csv
-from routebench.infra.geometry import OSRMGeometryProvider
+from routebench.infra.geometry import build_geometry_provider
 from routebench.infra.matrix.base import MatrixProvider
 from routebench.infra.matrix.google import estimate_run_cost_usd
 from routebench.infra.matrix.haversine import HaversineMatrixProvider
@@ -363,7 +363,11 @@ async def run_session(
         # computes it, so everything the map needs ships here. Geometry fetching
         # is blocking HTTP per route, hence the thread; it degrades to straight
         # lines rather than failing an analysis that already has real findings.
-        geometry_provider = OSRMGeometryProvider(host=deps.settings.osrm_host)
+        geometry_provider = build_geometry_provider(
+            matrix_engine=deps.settings.matrix_engine,
+            google_maps_api_key=deps.settings.google_maps_api_key,
+            osrm_host=deps.settings.osrm_host,
+        )
         routes_geojson = await asyncio.to_thread(build_routes_geojson, analysis, geometry_provider)
         geojson_data = json.dumps(routes_geojson, indent=2).encode()
         await storage.write(session_id, "routes.geojson", geojson_data)

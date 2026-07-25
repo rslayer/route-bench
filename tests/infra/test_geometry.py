@@ -15,8 +15,10 @@ import pytest
 
 from routebench.infra.geometry import (
     MAX_WAYPOINTS,
+    GoogleGeometryProvider,
     OSRMGeometryProvider,
     StraightLineGeometryProvider,
+    build_geometry_provider,
     straight_line,
 )
 
@@ -203,3 +205,139 @@ class TestGeoJSONIntegration:
 def test_fallback_line_length_matches_waypoints(n_stops: int) -> None:
     coords = [(32.0 + i * 0.01, -96.0) for i in range(n_stops)]
     assert len(straight_line(coords).positions) == n_stops
+
+
+def _google_ok(coords: list[list[float]]) -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={"routes": [{"polyline": {"geoJsonLinestring": {"coordinates": coords}}}]},
+    )
+
+
+class TestGoogleGeometrySuccess:
+    def test_returns_exact_road_geometry(self) -> None:
+        road = [[-96.80, 32.79], [-96.79, 32.80], [-96.78, 32.81]]
+        with patch("httpx.post", return_value=_google_ok(road)):
+            result = GoogleGeometryProvider(api_key="k").fetch(DALLAS)
+        assert result.quality == "exact"
+        assert result.positions == road
+
+    def test_request_shape_is_traffic_free_geojson_with_key(self) -> None:
+        with patch(
+            "httpx.post", return_value=_google_ok([[0.0, 0.0], [1.0, 1.0]])
+        ) as mock_post:
+            GoogleGeometryProvider(api_key="secret").fetch([(0.0, 0.0), (1.0, 1.0)])
+        _, kwargs = mock_post.call_args
+        assert kwargs["json"]["polylineEncoding"] == "GEO_JSON_LINESTRING"
+        assert kwargs["json"]["travelMode"] == "DRIVE"
+        # Geometry does not need the traffic-aware tier — no routingPreference.
+        assert "routingPreference" not in kwargs["json"]
+        assert kwargs["headers"]["X-Goog-Api-Key"] == "secret"
+        assert "geoJsonLinestring" in kwargs["headers"]["X-Goog-FieldMask"]
+        # (lat, lon) tuple becomes a latLng waypoint, not a lon,lat string.
+        assert kwargs["json"]["origin"]["location"]["latLng"] == {
+            "latitude": 0.0,
+            "longitude": 0.0,
+        }
+
+
+class TestGoogleGeometryDegradation:
+    """Never raises: every failure degrades to straight (approximate) segments."""
+
+    def _assert_fell_back(self, **kwargs: Any) -> None:
+        with patch("httpx.post", **kwargs):
+            result = GoogleGeometryProvider(api_key="k").fetch(DALLAS)
+        assert result.quality == "approximate"
+        assert len(result.positions) == len(DALLAS)
+
+    def test_connection_error(self) -> None:
+        self._assert_fell_back(side_effect=httpx.ConnectError("refused"))
+
+    def test_timeout(self) -> None:
+        self._assert_fell_back(side_effect=httpx.TimeoutException("slow"))
+
+    def test_http_403(self) -> None:
+        self._assert_fell_back(return_value=httpx.Response(403, json={"error": "denied"}))
+
+    def test_non_json_body(self) -> None:
+        self._assert_fell_back(return_value=httpx.Response(200, text="<html>nope</html>"))
+
+    def test_empty_routes(self) -> None:
+        self._assert_fell_back(return_value=httpx.Response(200, json={"routes": []}))
+
+    def test_missing_coordinates(self) -> None:
+        self._assert_fell_back(
+            return_value=httpx.Response(
+                200, json={"routes": [{"polyline": {"geoJsonLinestring": {}}}]}
+            )
+        )
+
+    def test_single_point_skips_google(self) -> None:
+        with patch("httpx.post") as mock_post:
+            result = GoogleGeometryProvider(api_key="k").fetch([(1.0, 2.0)])
+        mock_post.assert_not_called()
+        assert result.quality == "approximate"
+
+
+class TestGoogleGeometryChunking:
+    def test_long_route_splits_and_stitches_without_a_seam_duplicate(self) -> None:
+        # 30 stops > the 25-intermediate cap, so it must split into 2 calls and
+        # stitch. Each fake chunk returns its own waypoints as the "road" path;
+        # the stitched result must be continuous with no repeated boundary point.
+        coords = [(32.0 + i * 0.01, -96.0) for i in range(30)]
+
+        def responder(url: str, *, json: dict[str, Any], **_: Any) -> httpx.Response:
+            pts = [json["origin"], *json["intermediates"], json["destination"]]
+            line = [
+                [p["location"]["latLng"]["longitude"], p["location"]["latLng"]["latitude"]]
+                for p in pts
+            ]
+            return _google_ok(line)
+
+        with patch("httpx.post", side_effect=responder) as mock_post:
+            result = GoogleGeometryProvider(api_key="k").fetch(coords)
+
+        assert mock_post.call_count == 2  # split into two chunks
+        assert result.quality == "exact"
+        # One point per stop, in order, no duplicated seam.
+        assert len(result.positions) == len(coords)
+        assert result.positions[0] == [-96.0, 32.0]
+        assert result.positions[-1] == [-96.0, 32.0 + 29 * 0.01]
+
+    def test_one_failed_chunk_taints_whole_line_as_approximate(self) -> None:
+        coords = [(32.0 + i * 0.01, -96.0) for i in range(30)]
+        calls = {"n": 0}
+
+        def responder(url: str, *, json: dict[str, Any], **_: Any) -> httpx.Response:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                # First chunk succeeds: echo its waypoints as the road path.
+                pts = [json["origin"], *json["intermediates"], json["destination"]]
+                line = [
+                    [p["location"]["latLng"]["longitude"], p["location"]["latLng"]["latitude"]]
+                    for p in pts
+                ]
+                return _google_ok(line)
+            return httpx.Response(500, text="boom")
+
+        with patch("httpx.post", side_effect=responder):
+            result = GoogleGeometryProvider(api_key="k").fetch(coords)
+        # Second chunk fell back to straight segments -> whole line approximate,
+        # but still continuous and covering every stop.
+        assert result.quality == "approximate"
+        assert len(result.positions) == len(coords)
+
+
+class TestGeometryFactory:
+    def test_google_engine_with_key_uses_google(self) -> None:
+        provider = build_geometry_provider("google", "AIza-key", "http://osrm:5000")
+        assert isinstance(provider, GoogleGeometryProvider)
+
+    def test_google_engine_without_key_falls_back_to_straight_line(self) -> None:
+        provider = build_geometry_provider("google", "", "http://osrm:5000")
+        assert isinstance(provider, StraightLineGeometryProvider)
+
+    def test_osrm_engine_uses_osrm(self) -> None:
+        provider = build_geometry_provider("osrm", "", "http://osrm:5000")
+        assert isinstance(provider, OSRMGeometryProvider)
+        assert provider.host == "http://osrm:5000"
