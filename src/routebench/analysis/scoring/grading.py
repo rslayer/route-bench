@@ -24,6 +24,7 @@ they were graded under, so an old report is never silently reinterpreted.
 
 from __future__ import annotations
 
+import math
 import statistics
 from collections.abc import Mapping
 from itertools import pairwise
@@ -201,8 +202,13 @@ def _cv(values: list[float]) -> float | None:
 
     Needs at least two values (one route has nothing to vary against) and a
     non-zero mean (dividing by it would explode).
+
+    Non-finite values are dropped, not passed through: an unreachable leg makes a
+    route's time `inf`, and `statistics.stdev` raises on inf/nan rather than
+    returning it — so an infeasible route would crash the whole grade instead of
+    simply not participating in the fleet's variation.
     """
-    usable = [v for v in values if v is not None]
+    usable = [v for v in values if v is not None and math.isfinite(v)]
     if len(usable) < 2:
         return None
     mean = statistics.fmean(usable)

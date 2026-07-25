@@ -13,6 +13,7 @@ from routebench.analysis.scoring.grading import (
     GAP_PCT_BREAKPOINTS,
     GRADING_VERSION,
     WEIGHTS,
+    _cv,
     compute_grade,
     interpolate,
     letter_for,
@@ -457,3 +458,22 @@ class TestEmptyFleet:
         assert grade.overall.score is None
         assert grade.overall.letter is None
         assert all(d.not_graded for d in grade.dimensions)
+
+
+class TestCvHandlesNonFinite:
+    """An unreachable leg makes a route's time inf; the CV must not crash the
+    whole grade — statistics.stdev raises on inf/nan rather than skipping it."""
+
+    def test_inf_values_are_dropped_not_crashed(self) -> None:
+        # Two finite, one inf: the CV is computed over the finite pair.
+        assert _cv([100.0, 200.0, float("inf")]) == pytest.approx(_cv([100.0, 200.0]))
+
+    def test_nan_values_are_dropped(self) -> None:
+        assert _cv([100.0, 200.0, float("nan")]) == pytest.approx(_cv([100.0, 200.0]))
+
+    def test_too_few_finite_values_returns_none(self) -> None:
+        assert _cv([float("inf"), 100.0]) is None  # only one finite left
+        assert _cv([float("inf"), float("inf")]) is None
+
+    def test_all_finite_unchanged(self) -> None:
+        assert _cv([100.0, 200.0, 300.0]) is not None
