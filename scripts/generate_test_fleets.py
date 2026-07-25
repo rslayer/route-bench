@@ -82,7 +82,10 @@ FLEETS: tuple[FleetSpec, ...] = (
         slug="02_rural_sparse_montana",
         metro="Bozeman / Gallatin Valley, MT",
         center=(45.6800, -111.0400),
-        radius_deg=0.28,  # ~18 mi: long rural legs
+        # ~9 mi: long rural legs but within the valley's road network, so stops
+        # stay routable. Wider than this and points land off-road (wilderness,
+        # across rivers) with no Google route -> inf legs.
+        radius_deg=0.13,
         stops_per_route=(5, 4, 6),
         start_times=("08:00", "08:00", "08:30"),
         date="2025-06-11",

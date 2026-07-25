@@ -185,6 +185,17 @@ class AnalysisConfig(BaseModel):
     route_benchmark_time_limit_s: int = Field(default=30, gt=0)
     fleet_benchmark_time_limit_s: int = Field(default=120, gt=0)
 
+    # Adaptive solver budget: scale the solve time with the problem size instead
+    # of spending the full limit on every fleet. Small fleets finish in seconds;
+    # large ones still get the limits above as a ceiling. Off -> the fixed limits
+    # apply to every run (the strongest, slowest baseline). See
+    # analysis/benchmark/budget.py.
+    adaptive_solver_budget: bool = True
+    solver_seconds_per_route_stop: float = Field(default=1.5, ge=0)
+    route_min_time_limit_s: int = Field(default=5, gt=0)
+    solver_seconds_per_fleet_stop: float = Field(default=3.0, ge=0)
+    fleet_min_time_limit_s: int = Field(default=20, gt=0)
+
     @field_validator("traffic", mode="before")
     @classmethod
     def _resolve_named_profile(cls, v: object) -> object:

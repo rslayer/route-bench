@@ -30,8 +30,9 @@ const SAMPLE_CSV = path.resolve(__dirname, "../../data/samples/v1/sample_fleet.c
 test.describe("live smoke", () => {
   test.skip(!LIVE, "set E2E_LIVE=1 and point E2E_BASE_URL at a running stack");
 
-  // A real analysis, even without the benchmark, is not instant.
-  test.setTimeout(120_000);
+  // A real analysis, even without the benchmark, is not instant — and a
+  // benchmark-on run against a cold region can take a couple of minutes.
+  test.setTimeout(300_000);
 
   test("upload the sample fleet and reach a rendered result", async ({ page }) => {
     await page.goto("/");
@@ -67,7 +68,7 @@ test.describe("live smoke", () => {
     // a crash or a perpetual spinner is not. The findings list and the map are
     // the load-bearing pieces, so assert the page settled onto the results view.
     await expect(page.getByRole("heading", { name: /your (results|route quality)/i })).toBeVisible({
-      timeout: 90_000,
+      timeout: 240_000,
     });
 
     // The map mounted (its canvas exists), and the findings region rendered.

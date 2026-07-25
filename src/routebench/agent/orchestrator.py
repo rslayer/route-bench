@@ -10,6 +10,7 @@ import structlog
 
 from routebench.agent.client import LLMClient
 from routebench.agent.tool_specs import build_tool_specs
+from routebench.analysis.benchmark.budget import fleet_time_limit_s, route_time_limit_s
 from routebench.analysis.benchmark.fleet_matrix import get_fleet_matrix
 from routebench.analysis.scoring import compute_scorecard
 from routebench.analysis.scoring.distance import get_route_matrix
@@ -356,9 +357,10 @@ class AnalysisOrchestrator:
         route; the fleet limit once.
         """
         if getattr(tool, "requires_fleet_matrix", False):
-            return float(self._config.fleet_benchmark_time_limit_s)
+            total_stops = sum(len(r.stops) for r in fleet.routes)
+            return float(fleet_time_limit_s(total_stops, self._config))
         if getattr(tool, "is_benchmark", False):
-            return float(len(fleet.routes) * self._config.route_benchmark_time_limit_s)
+            return float(sum(route_time_limit_s(len(r.stops), self._config) for r in fleet.routes))
         return _FAST_TOOL_SECONDS
 
     def _report(self, pct: int, detail: str, seconds_remaining: int | None = None) -> None:
@@ -446,8 +448,10 @@ class AnalysisOrchestrator:
             "benchmark_sink": benchmark_sink,
         }
         if getattr(tool, "is_benchmark", False):
-            # Solvers spend their limit in full, so these must come from config
-            # rather than the tools' defaults.
+            # Hand the config to the benchmark tools so each derives an adaptive,
+            # size-scaled solve budget per route / per fleet. time_limit_s stays
+            # as the non-adaptive fallback for callers that do not pass config.
+            tool_kwargs["analysis_config"] = self._config
             tool_kwargs["time_limit_s"] = (
                 self._config.fleet_benchmark_time_limit_s
                 if getattr(tool, "requires_fleet_matrix", False)

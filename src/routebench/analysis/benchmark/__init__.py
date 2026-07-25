@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from routebench.analysis.benchmark.budget import fleet_time_limit_s, route_time_limit_s
 from routebench.analysis.benchmark.compare import (
     compute_fleet_benchmark,
     compute_route_benchmark,
@@ -15,7 +16,7 @@ from routebench.analysis.benchmark.fleet_matrix import (
 from routebench.analysis.benchmark.tsptw import solve_tsptw
 from routebench.analysis.benchmark.vrptw import solve_vrptw
 from routebench.analysis.tools import ApplicabilityResult
-from routebench.core.config import WorkRules
+from routebench.core.config import AnalysisConfig, WorkRules
 from routebench.core.findings import (
     Finding,
     FindingEvidence,
@@ -43,6 +44,10 @@ class RouteBenchmarkTool:
         matrices: dict[str, MatrixResult] = kwargs.get("matrices", {})  # type: ignore[assignment]
         work_rules: WorkRules = kwargs.get("work_rules", WorkRules())  # type: ignore[assignment]
         time_limit: int = kwargs.get("time_limit_s", 30)  # type: ignore[assignment]
+        # When the orchestrator passes the config, each route's budget scales with
+        # its own stop count; otherwise the flat time_limit_s applies (tests, and
+        # any caller that has not opted in).
+        config: AnalysisConfig | None = kwargs.get("analysis_config")  # type: ignore[assignment]
         # Solving is the expensive part; hand the structured result back through
         # the sink so the report can show it without paying for a second solve.
         sink: dict[str, object] | None = kwargs.get("benchmark_sink")  # type: ignore[assignment]
@@ -54,7 +59,8 @@ class RouteBenchmarkTool:
             if matrix is None:
                 continue
 
-            optimal = solve_tsptw(route, matrix, work_rules, time_limit_s=time_limit)
+            route_limit = route_time_limit_s(len(route.stops), config) if config else time_limit
+            optimal = solve_tsptw(route, matrix, work_rules, time_limit_s=route_limit)
             benchmark = compute_route_benchmark(route, optimal, matrix)
             per_route[route.route_id] = benchmark
 
@@ -172,6 +178,7 @@ class FleetBenchmarkTool:
         matrices: dict[str, MatrixResult] = kwargs.get("matrices", {})  # type: ignore[assignment]
         work_rules: WorkRules = kwargs.get("work_rules", WorkRules())  # type: ignore[assignment]
         time_limit: int = kwargs.get("time_limit_s", 120)  # type: ignore[assignment]
+        config: AnalysisConfig | None = kwargs.get("analysis_config")  # type: ignore[assignment]
         sink: dict[str, object] | None = kwargs.get("benchmark_sink")  # type: ignore[assignment]
         findings: list[Finding] = []
 
@@ -182,7 +189,10 @@ class FleetBenchmarkTool:
         for route in fleet.routes:
             all_stops.extend(route.stops)
 
-        solution = solve_vrptw(fleet, combined_matrix, work_rules, time_limit_s=time_limit)
+        # Scale the fleet solve with total stops when the config is available, so
+        # a small fleet is not held for the full ceiling.
+        fleet_limit = fleet_time_limit_s(len(all_stops), config) if config else time_limit
+        solution = solve_vrptw(fleet, combined_matrix, work_rules, time_limit_s=fleet_limit)
         # Without per_route_matrices the actual total is silently 0.0, which would
         # report the whole fleet's mileage as pure savings.
         benchmark = compute_fleet_benchmark(fleet, solution, all_stops, per_route_matrices=matrices)
