@@ -29,6 +29,23 @@ from routebench.infra.storage.local import LocalStorageBackend
 # look authoritative while the request path never consulted it.
 limiter = Limiter(key_func=get_remote_address)
 
+# Advisory backoff (seconds) sent as Retry-After when the ingest queue is full.
+# The queue is bounded and the worker is single-concurrency, so a full queue
+# means a client should wait roughly one session's processing time before a slot
+# frees. It is a hint, not a guarantee — the true wait depends on where the
+# in-flight job sits in its solver budget.
+_QUEUE_FULL_RETRY_AFTER_S = 30
+
+
+def _queue_full_error() -> HTTPException:
+    """429 for a full ingest queue, carrying a Retry-After backoff hint."""
+    return HTTPException(
+        status_code=429,
+        detail="Queue is full. Try again later.",
+        headers={"Retry-After": str(_QUEUE_FULL_RETRY_AFTER_S)},
+    )
+
+
 logger: structlog.stdlib.BoundLogger = structlog.get_logger()
 
 router = APIRouter()
@@ -62,7 +79,7 @@ async def create_session(
 
     # Check queue capacity
     if worker.is_full:
-        raise HTTPException(status_code=429, detail="Queue is full. Try again later.")
+        raise _queue_full_error()
 
     # A spent daily budget no longer rejects the upload.
     #
@@ -157,7 +174,7 @@ async def create_session(
     if not enqueued:
         registry.remove_active(session_id)
         await storage.delete_session(session_id)
-        raise HTTPException(status_code=429, detail="Queue is full. Try again later.")
+        raise _queue_full_error()
 
     logger.info("session_created", session_id=session_id)
     return SessionCreateResponse(

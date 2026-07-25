@@ -268,9 +268,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         from fastapi.responses import JSONResponse
 
         logger.warning("rate_limited", detail=str(exc))
+        # Tell the client how long to back off. slowapi only emits Retry-After
+        # when headers_enabled=True, which also injects headers into successful
+        # pydantic responses and turns them into 500s — so we derive it here on
+        # the error path only. get_expiry() is the window length in seconds
+        # (3600 for "10/hour"); fall back to 60 if the shape ever changes.
+        try:
+            retry_after = int(exc.limit.limit.get_expiry())
+        except Exception:
+            retry_after = 60
         return JSONResponse(
             status_code=429,
             content={"detail": "Rate limit exceeded. Try again later."},
+            headers={"Retry-After": str(retry_after)},
         )
 
     # Store deps on app state

@@ -251,6 +251,39 @@ the baked-graph image — mount the graph on a volume instead. Query latency doe
 cost is RAM, disk, build time, and a much bigger monthly bill. For broad coverage
 without that, stay on Google.
 
+## Concurrency, backpressure, and throughput
+
+Ingest is decoupled from compute. `POST /sessions` validates the CSV, persists
+the upload, enqueues a job, and returns `202` immediately — it never blocks on
+the analysis. A **single-concurrency worker** then drains an in-process
+`asyncio.Queue(maxsize=MAX_QUEUE_DEPTH)` (default 5) one job at a time.
+
+- **Capacity is `1 in-flight + MAX_QUEUE_DEPTH queued`** (default 6). Beyond
+  that, `POST /sessions` sheds load with `429 "Queue is full. Try again later."`
+  carrying a `Retry-After` header — it does not queue unboundedly or fall over.
+  A load test of 20 simultaneous uploads returned exactly 6×202 + 14×429 with no
+  5xx, and each 429 came back in a few milliseconds (shedding never waits on the
+  busy worker).
+- **The per-IP rate limit** (`10/hour;100/day` on `POST /sessions`) also returns
+  `429` — with its own `Retry-After` — but a different body (`"Rate limit
+  exceeded…"`), so clients and logs can tell backpressure from throttling apart.
+- **Per-session latency is dominated by the benchmark solver budget**, roughly
+  `n_routes × route_benchmark_time_limit_s + fleet_benchmark_time_limit_s`
+  (defaults 30 + 120). Small inputs finish faster because the solvers exit early
+  once optimal; large inputs stay bounded rather than running away. Sessions are
+  processed serially, so **throughput ≈ one session per solver-time** — the
+  single worker is the ceiling, by design (it also guarantees jobs cannot race).
+- **Keep the API to one machine.** The queue, the active-session registry, and
+  the budget ledger all live in-process, so a second worker/machine would have
+  its own queue and would not see sessions created on the other — a `GET`
+  status on the wrong machine would 404. To scale throughput past one worker,
+  move the queue and registry to a shared store (Redis/DB) first; until then,
+  scale the box, not the worker count. (`fly.toml` pins `min`/`max` to one.)
+
+Cross-session isolation and determinism were verified under load: distinct
+concurrent uploads each produce an analysis reflecting only their own input (no
+state leakage), and identical input yields byte-identical input-derived metrics.
+
 ## What is NOT set up
 
 - **No CD.** Deploys are the manual `fly deploy` commands above. A GitHub Action
