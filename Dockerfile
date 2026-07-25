@@ -8,7 +8,11 @@
 # The web frontend is a separate image (web/Dockerfile); this builds the API only.
 
 # ---- Builder stage ----
-FROM python:3.12-slim AS builder
+# Pinned to bookworm (Debian 12). The bare `python:3.12-slim` tag follows Debian
+# stable, which rolled to trixie (13) and renamed apt packages the runtime stage
+# installs (libgdk-pixbuf2.0-0 -> libgdk-pixbuf-2.0-0), breaking the build with
+# no code change. Pin the suite so the image is reproducible; bump deliberately.
+FROM python:3.12-slim-bookworm AS builder
 
 WORKDIR /app
 
@@ -22,7 +26,7 @@ COPY scripts/ scripts/
 COPY data/ data/
 
 # ---- Runtime stage ----
-FROM python:3.12-slim AS runtime
+FROM python:3.12-slim-bookworm AS runtime
 
 # WeasyPrint's native libraries, for PDF report rendering. No supervisor now.
 RUN apt-get update && apt-get install -y --no-install-recommends \

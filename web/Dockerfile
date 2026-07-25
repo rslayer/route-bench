@@ -5,7 +5,10 @@
 # web/-prefixed; a bare `COPY package.json` would look in the repo root, which
 # is the Python project and has none, and the build would fail on the first
 # COPY.
-FROM node:22-slim AS builder
+# Pinned to bookworm: the bare `node:22-slim` tag follows Debian stable and would
+# silently roll suites (as it did for the API image). No apt installs here, but
+# pin anyway so the build stays reproducible.
+FROM node:22-bookworm-slim AS builder
 WORKDIR /app
 
 COPY web/package.json web/package-lock.json ./
@@ -20,7 +23,7 @@ ENV NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE}
 
 RUN npm run build
 
-FROM node:22-slim AS runtime
+FROM node:22-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
