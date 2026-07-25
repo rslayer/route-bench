@@ -25,9 +25,9 @@ from routebench.app.worker import SessionWorker
 from routebench.core.config import Settings
 from routebench.core.version import package_version
 from routebench.infra.matrix.base import MatrixProvider
-from routebench.infra.matrix.cache import CachedMatrixProvider
 from routebench.infra.matrix.fallback import FallbackMatrixProvider
 from routebench.infra.matrix.haversine import HaversineMatrixProvider
+from routebench.infra.matrix.perleg_cache import PerLegMatrixCache
 from routebench.infra.matrix.osrm import OSRMMatrixProvider
 from routebench.infra.storage.base import StorageBackend
 from routebench.infra.storage.local import LocalStorageBackend
@@ -134,7 +134,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # is ever written.
     primary = _build_primary_matrix_provider(settings)
     if settings.matrix_cache_enabled:
-        primary = CachedMatrixProvider(backend=primary, cache_dir=Path(settings.matrix_cache_path))
+        # Per-leg cache: reuses individual origin->destination legs across fleets,
+        # not just whole-matrix re-runs, so a second fleet in a warm region pays
+        # Google only for the legs it introduces. Sits inside the fallback for the
+        # same reason the whole-matrix cache did — an engine outage raises through
+        # it and no estimate is ever stored.
+        primary = PerLegMatrixCache(
+            backend=primary,
+            cache_dir=Path(settings.matrix_cache_path),
+            snap_decimals=settings.matrix_cache_snap_decimals,
+            ttl_seconds=settings.matrix_cache_ttl_days * 86_400,
+        )
     matrix_provider = FallbackMatrixProvider(
         primary=primary,
         fallback=HaversineMatrixProvider(),

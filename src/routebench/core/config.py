@@ -265,6 +265,17 @@ class Settings(BaseSettings):
     # than one per launch cwd. A deployment overrides with an absolute path on a
     # persistent volume.
     matrix_cache_path: str = str(_REPO_ROOT / "data" / "matrix-cache")
+    # Per-leg cache knobs. Coordinates are snapped to this many decimal places so
+    # the same stop recurring across fleets (a depot, a repeat customer) reuses
+    # its legs even when the float is not bit-identical: 4 dp is ~11 m — distinct
+    # delivery stops are rarely closer, so collisions are rare, while an exact
+    # address matches itself. Lower it for more aggressive reuse at the cost of
+    # snapping nearby-but-different stops together.
+    matrix_cache_snap_decimals: int = Field(default=4, ge=0, le=6)
+    # A cached leg is trusted for this long. Typical time-of-day travel is stable
+    # week to week, but Google's model drifts and roads change, so legs expire
+    # and are refetched rather than served forever.
+    matrix_cache_ttl_days: float = Field(default=7.0, gt=0)
 
     # Basemap tiles for the report's route images. See infra/tiles.py.
     #
