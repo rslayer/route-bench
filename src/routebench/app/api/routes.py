@@ -238,6 +238,7 @@ async def _serve_artifact(
     *,
     media_type: str,
     missing_detail: str,
+    allow_redirect: bool = True,
 ) -> RedirectResponse | Response:
     """Serve one session artifact, refusing expired sessions.
 
@@ -261,11 +262,21 @@ async def _serve_artifact(
     if not await storage.exists(session_id, filename):
         raise HTTPException(status_code=404, detail=missing_detail)
 
-    if isinstance(storage, LocalStorageBackend):
-        data = await storage.read(session_id, filename)
-        return Response(content=data, media_type=media_type)
-    url = await storage.presigned_url(session_id, filename)
-    return RedirectResponse(url=url, status_code=302)
+    # Artifacts the browser fetches with JS (analysis.json, routes.geojson) must
+    # be served same-origin. A 302 to a pre-signed R2 URL sends the browser to
+    # storage.cloudflarestorage.com, which returns no CORS headers, so the
+    # cross-origin fetch is blocked in the browser as "Failed to fetch" — even
+    # though curl (which ignores CORS) sees the bytes fine. Streaming the bytes
+    # back through the API keeps the response same-origin, so the app's CORS
+    # middleware applies and the fetch succeeds. Reports (report.html/pdf) are
+    # opened by navigation, not fetch, so they keep the redirect and avoid
+    # proxying large files. Local storage always streams — there is no URL to
+    # sign.
+    if allow_redirect and not isinstance(storage, LocalStorageBackend):
+        url = await storage.presigned_url(session_id, filename)
+        return RedirectResponse(url=url, status_code=302)
+    data = await storage.read(session_id, filename)
+    return Response(content=data, media_type=media_type)
 
 
 @router.get("/sessions/{session_id}/report.html", response_model=None)
@@ -305,6 +316,9 @@ async def download_analysis_json(request: Request, session_id: str) -> RedirectR
         "analysis.json",
         media_type="application/json",
         missing_detail="Analysis not found",
+        # Fetched by the UI with JS: stream it same-origin, never redirect to R2,
+        # or the browser blocks the cross-origin read (no CORS on the signed URL).
+        allow_redirect=False,
     )
 
 
@@ -322,6 +336,9 @@ async def download_routes_geojson(request: Request, session_id: str) -> Redirect
         "routes.geojson",
         media_type="application/geo+json",
         missing_detail="Map data not found",
+        # Fetched by the UI with JS: stream it same-origin, never redirect to R2,
+        # or the browser blocks the cross-origin read (no CORS on the signed URL).
+        allow_redirect=False,
     )
 
 

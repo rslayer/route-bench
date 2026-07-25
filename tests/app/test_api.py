@@ -277,6 +277,84 @@ class TestReportDownload:
         assert b"<html>hi</html>" in resp.content
 
 
+class _FakeRemoteStorage:
+    """A non-local backend that hands out pre-signed URLs on a different origin.
+
+    Stands in for S3/R2 so tests can assert which artifacts are streamed through
+    the API and which are redirected to storage — without a real bucket.
+    """
+
+    def __init__(self) -> None:
+        self._data: dict[tuple[str, str], bytes] = {}
+
+    async def write(self, session_id: str, filename: str, data: bytes) -> None:
+        self._data[(session_id, filename)] = data
+
+    async def read(self, session_id: str, filename: str) -> bytes:
+        try:
+            return self._data[(session_id, filename)]
+        except KeyError as exc:  # match the real backend's contract
+            raise FileNotFoundError(filename) from exc
+
+    async def exists(self, session_id: str, filename: str) -> bool:
+        return (session_id, filename) in self._data
+
+    async def presigned_url(self, session_id: str, filename: str, ttl_seconds: int = 900) -> str:
+        return f"https://bucket.r2.example.com/{session_id}/{filename}?sig=abc"
+
+    async def is_writable(self) -> bool:
+        return True
+
+    async def list_sessions(self) -> list[str]:
+        return []
+
+
+class TestArtifactCorsServing:
+    """Browser-fetched artifacts must stream same-origin, never 302 to storage.
+
+    A pre-signed R2 URL is a different origin that returns no CORS headers, so a
+    cross-origin `fetch` of it is blocked in the browser ("Failed to fetch")
+    even though curl sees the bytes. analysis.json and routes.geojson are fetched
+    by the UI with JS, so they must be streamed; reports are opened by
+    navigation, so they keep the (cheaper) redirect.
+    """
+
+    def _client(self, settings: Settings, storage: _FakeRemoteStorage) -> TestClient:
+        application = create_app(settings=settings)
+        application.state.storage = storage
+        application.state.registry._storage = storage
+        return TestClient(application, raise_server_exceptions=False)
+
+    @pytest.mark.parametrize(
+        ("artifact", "body"),
+        [
+            ("analysis.json", b'{"grade": {"overall": {"letter": "B"}}}'),
+            ("routes.geojson", b'{"type": "FeatureCollection", "features": []}'),
+        ],
+    )
+    def test_json_artifacts_stream_not_redirect(
+        self, settings: Settings, artifact: str, body: bytes
+    ) -> None:
+        storage = _FakeRemoteStorage()
+        asyncio.run(storage.write("s1", artifact, body))
+        client = self._client(settings, storage)
+
+        resp = client.get(f"/sessions/s1/{artifact}", follow_redirects=False)
+
+        assert resp.status_code == 200  # streamed, not a 302 to R2
+        assert resp.content == body
+
+    def test_reports_still_redirect_to_storage(self, settings: Settings) -> None:
+        storage = _FakeRemoteStorage()
+        asyncio.run(storage.write("s1", "report.html", b"<html>hi</html>"))
+        client = self._client(settings, storage)
+
+        resp = client.get("/sessions/s1/report.html", follow_redirects=False)
+
+        assert resp.status_code == 302
+        assert "bucket.r2.example.com" in resp.headers["location"]
+
+
 class TestHealthz:
     """Tests for GET /healthz."""
 
