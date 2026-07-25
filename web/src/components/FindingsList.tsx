@@ -19,6 +19,7 @@ const CATEGORY_LABEL: Record<string, string> = {
   territory: "Territory",
   dispatch: "Dispatch",
   outlier: "Outlier",
+  reachability: "Reachability",
 };
 
 function Evidence({ finding }: { finding: Finding }) {

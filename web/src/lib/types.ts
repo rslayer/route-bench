@@ -85,7 +85,8 @@ export type FindingCategory =
   | "compliance"
   | "territory"
   | "dispatch"
-  | "outlier";
+  | "outlier"
+  | "reachability";
 
 export type FindingSeverity = "info" | "low" | "medium" | "high" | "critical";
 

@@ -51,6 +51,7 @@ _TOOL_LABELS: dict[str, str] = {
     "analyze_territory": "Comparing territories",
     "analyze_dispatch": "Checking dispatch balance",
     "analyze_compliance": "Checking shift compliance",
+    "analyze_reachability": "Checking for unreachable stops",
     "route_benchmark": "Re-solving each route",
     "fleet_benchmark": "Re-solving the whole fleet",
 }

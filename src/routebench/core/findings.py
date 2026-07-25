@@ -27,6 +27,7 @@ FindingCategory = Literal[
     "territory",
     "dispatch",
     "outlier",
+    "reachability",
 ]
 FindingSeverity = Literal["info", "low", "medium", "high", "critical"]
 ComparisonType = Literal["fleet_median", "threshold", "optimal", "peer", None]
