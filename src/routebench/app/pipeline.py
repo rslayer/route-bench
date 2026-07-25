@@ -52,6 +52,16 @@ from routebench.report.prose_slots import ProseSlot, identify_prose_slots
 logger: structlog.stdlib.BoundLogger = structlog.get_logger()
 
 
+def _pop_matrix_spend(provider: object) -> float:
+    """Read and reset a provider's accrued backend spend, if it tracks any.
+
+    Only the per-leg cache (via the fallback wrapper) exposes this; a degraded
+    run's bare haversine provider, or a test stub, reports zero.
+    """
+    pop = getattr(provider, "pop_spend_usd", None)
+    return float(pop()) if callable(pop) else 0.0
+
+
 @dataclass
 class PipelineDeps:
     """Injected dependencies for the pipeline."""
@@ -190,16 +200,23 @@ async def run_session(
         # this run will actually use it: a budget-degraded run spends nothing
         # more, and free engines cost nothing. The estimate is the no-cache worst
         # case (see estimate_run_cost_usd), keeping the cap conservative.
+        reserved_matrix_usd = 0.0
+        matrix_spend_reserved = False
         if (
             not matrix_budget_exceeded
             and deps.settings.matrix_engine == "google"
             and deps.matrix_budget_tracker is not None
             and deps.matrix_budget_tracker.daily_budget > 0
         ):
+            reserved_matrix_usd = estimate_run_cost_usd(fleet, config.include_benchmark)
             await deps.matrix_budget_tracker.record_spend(
-                estimate_run_cost_usd(fleet, config.include_benchmark),
+                reserved_matrix_usd,
                 session_id=session_id,
             )
+            matrix_spend_reserved = True
+            # Start this run's actual-spend meter from zero, discarding any
+            # residue an interrupted prior run left on the shared provider.
+            _pop_matrix_spend(deps.matrix_provider)
 
         # Decide once whether the LLM may be used for this run, and let both the
         # orchestrator and the prose stage honour the same answer.
@@ -255,6 +272,23 @@ async def run_session(
         )
         analysis = await asyncio.to_thread(orchestrator.run, fleet)
         _check_token_cap()
+
+        # Reconcile the matrix cap against ACTUAL spend. The reservation above is
+        # the no-cache worst case, so the run stayed safely capped while it ran;
+        # now that every matrix is fetched, correct the ledger down to what was
+        # really billed (0 on a full cache hit). Without this, the cache would cut
+        # real Google cost but the cap would keep tripping on phantom estimates.
+        if matrix_spend_reserved and deps.matrix_budget_tracker is not None:
+            actual_matrix_usd = _pop_matrix_spend(deps.matrix_provider)
+            correction = actual_matrix_usd - reserved_matrix_usd
+            if abs(correction) > 1e-9:
+                await deps.matrix_budget_tracker.record_spend(correction, session_id=session_id)
+            logger.info(
+                "matrix_spend_reconciled",
+                session_id=session_id,
+                reserved_usd=round(reserved_matrix_usd, 4),
+                actual_usd=round(actual_matrix_usd, 4),
+            )
 
         # Say WHY the matrix was approximate, so the report can tell the truth
         # rather than always blaming an outage. If we degraded this run for the

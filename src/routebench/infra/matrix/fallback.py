@@ -32,6 +32,19 @@ class FallbackMatrixProvider:
         self.primary = primary
         self.fallback = fallback
         self.name = f"{primary.name}_or_{fallback.name}"
+        # Actual metered spend since the last pop. Accrued here, at the top of the
+        # chain, so it reflects what was really billed whether or not a cache sits
+        # beneath: a cache hit yields cost_estimate 0, a straight-line fallback
+        # yields 0, a real fetch yields its element cost. Single-concurrency worker
+        # owns this, so no lock is needed.
+        self._pending_spend_usd = 0.0
+
+    def pop_spend_usd(self) -> float:
+        """Return and reset the metered spend accrued since the last call, so the
+        pipeline can reconcile the daily cap against what was really fetched."""
+        spent = self._pending_spend_usd
+        self._pending_spend_usd = 0.0
+        return spent
 
     @property
     def is_time_aware(self) -> bool:
@@ -50,12 +63,14 @@ class FallbackMatrixProvider:
     ) -> MatrixResult:
         """The primary's result, or the fallback's if the primary is unavailable."""
         try:
-            return self.primary.get_matrix(
+            result = self.primary.get_matrix(
                 origins,
                 destinations,
                 departure_time=departure_time,
                 origin_departure_times=origin_departure_times,
             )
+            self._pending_spend_usd += result.cost_estimate
+            return result
         except MatrixUnavailableError as exc:
             # Warning, not exception: this is a handled degradation, and the
             # result carries approximate=True so every downstream consumer —

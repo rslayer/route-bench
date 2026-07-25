@@ -27,8 +27,8 @@ from routebench.core.version import package_version
 from routebench.infra.matrix.base import MatrixProvider
 from routebench.infra.matrix.fallback import FallbackMatrixProvider
 from routebench.infra.matrix.haversine import HaversineMatrixProvider
-from routebench.infra.matrix.perleg_cache import PerLegMatrixCache
 from routebench.infra.matrix.osrm import OSRMMatrixProvider
+from routebench.infra.matrix.perleg_cache import PerLegMatrixCache
 from routebench.infra.storage.base import StorageBackend
 from routebench.infra.storage.local import LocalStorageBackend
 from routebench.infra.tiles import from_settings as tiles_from_settings

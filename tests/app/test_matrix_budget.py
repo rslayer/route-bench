@@ -21,6 +21,8 @@ from routebench.app.budget import BudgetTracker
 from routebench.app.pipeline import PipelineDeps, run_session
 from routebench.core.config import AnalysisConfig, Settings, TrafficProfile
 from routebench.infra.matrix.base import MatrixResult
+from routebench.infra.matrix.fallback import FallbackMatrixProvider
+from routebench.infra.matrix.haversine import HaversineMatrixProvider
 from routebench.infra.storage.local import LocalStorageBackend
 
 _CSV = (
@@ -37,8 +39,9 @@ class _RecordingGoogle:
     name = "google"
     is_time_aware = True
 
-    def __init__(self) -> None:
+    def __init__(self, cost: float = 0.5) -> None:
         self.calls = 0
+        self._cost = cost  # per-call cost_estimate; 0.0 stands in for a cache hit
         # Calls carrying per-origin departure times only happen on the traffic
         # two-pass banding path — so a non-zero count means this time-aware
         # engine was wrongly wrapped in TrafficAdjustedProvider.
@@ -60,7 +63,7 @@ class _RecordingGoogle:
             distances_meters=[[4000.0] * n_d for _ in range(n_o)],
             provider="google",
             cached=False,
-            cost_estimate=0.5,
+            cost_estimate=self._cost,
             approximate=False,
         )
 
@@ -91,8 +94,15 @@ class _ApproxOsrm:
 
 def _deps(tmp_path: Path, budget: float, provider: object, engine: str = "google") -> PipelineDeps:
     storage = LocalStorageBackend(base_path=str(tmp_path / "sessions"))
+    # Wrap exactly as production does, so the spend meter used for reconciliation
+    # (FallbackMatrixProvider.pop_spend_usd) is present. The stand-in stays the
+    # primary, so its call counters still see every request.
+    wrapped = FallbackMatrixProvider(
+        primary=provider,  # type: ignore[arg-type]
+        fallback=HaversineMatrixProvider(),
+    )
     return PipelineDeps(
-        matrix_provider=provider,  # type: ignore[arg-type]
+        matrix_provider=wrapped,
         storage=storage,
         llm_client=LLMClient(api_key=""),  # available=False → deterministic path, no LLM calls
         settings=Settings(
@@ -152,7 +162,24 @@ class TestMatrixBudgetDegrade:
         assert provider.calls > 0  # the engine was actually used
         assert deps.matrix_budget_tracker is not None
         spend = asyncio.run(deps.matrix_budget_tracker.today_spend())
-        assert spend > 0  # this run's estimated cost was recorded for the day
+        # The ledger is reconciled to ACTUAL spend, not the up-front worst-case
+        # reservation: each real fetch billed 0.5, so the day reflects 0.5/call.
+        assert spend == pytest.approx(0.5 * provider.calls)
+
+    def test_cache_hit_reconciles_to_zero_and_frees_the_cap(self, tmp_path: Path) -> None:
+        """A run whose matrices were all cache hits (cost 0) must cost the cap
+        nothing, even though the worst-case reservation was charged up front."""
+        provider = _RecordingGoogle(cost=0.0)  # every fetch reports 0 -> a full cache hit
+        deps = _deps(tmp_path, budget=100.0, provider=provider)
+
+        result = asyncio.run(run_session("s_hit", _write_csv(tmp_path), _fast_config(), deps))
+
+        assert result.state == "succeeded"
+        assert deps.matrix_budget_tracker is not None
+        spend = asyncio.run(deps.matrix_budget_tracker.today_spend())
+        assert spend == pytest.approx(0.0)  # reservation reconciled back to actual (0)
+        report = _json.loads(asyncio.run(deps.storage.read("s_hit", "analysis.json")))
+        assert report["matrix_approximate"] is False  # a cache hit is still a real answer
 
     def test_no_cap_never_degrades_or_records(self, tmp_path: Path) -> None:
         """budget 0 = off: the engine is always used and nothing is metered."""
