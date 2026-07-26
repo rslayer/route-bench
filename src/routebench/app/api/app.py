@@ -273,8 +273,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # pydantic responses and turns them into 500s — so we derive it here on
         # the error path only. get_expiry() is the window length in seconds
         # (3600 for "10/hour"); fall back to 60 if the shape ever changes.
+        retry_after = 60
         try:
-            retry_after = int(exc.limit.limit.get_expiry())
+            if exc.limit is not None:
+                retry_after = int(exc.limit.limit.get_expiry())
         except Exception:
             retry_after = 60
         return JSONResponse(
