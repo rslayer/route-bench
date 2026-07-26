@@ -223,9 +223,7 @@ class TestGoogleGeometrySuccess:
         assert result.positions == road
 
     def test_request_shape_is_traffic_free_geojson_with_key(self) -> None:
-        with patch(
-            "httpx.post", return_value=_google_ok([[0.0, 0.0], [1.0, 1.0]])
-        ) as mock_post:
+        with patch("httpx.post", return_value=_google_ok([[0.0, 0.0], [1.0, 1.0]])) as mock_post:
             GoogleGeometryProvider(api_key="secret").fetch([(0.0, 0.0), (1.0, 1.0)])
         _, kwargs = mock_post.call_args
         assert kwargs["json"]["polylineEncoding"] == "GEO_JSON_LINESTRING"
