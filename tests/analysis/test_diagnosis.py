@@ -78,6 +78,7 @@ class TestToolsRegistry:
             "analyze_territory",
             "analyze_dispatch",
             "analyze_compliance",
+            "analyze_reachability",
             "route_benchmark",
             "fleet_benchmark",
         }
