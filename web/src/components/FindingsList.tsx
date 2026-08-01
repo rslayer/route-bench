@@ -20,6 +20,7 @@ const CATEGORY_LABEL: Record<string, string> = {
   dispatch: "Dispatch",
   outlier: "Outlier",
   reachability: "Reachability",
+  data_quality: "Data quality",
 };
 
 function Evidence({ finding }: { finding: Finding }) {

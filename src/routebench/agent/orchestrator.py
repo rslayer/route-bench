@@ -24,6 +24,7 @@ from routebench.core.findings import (
     FleetMetrics,
     RouteMetrics,
 )
+from routebench.core.industry import get_profile
 from routebench.core.schemas import Fleet
 from routebench.infra.matrix.base import MatrixProvider, MatrixResult
 from routebench.infra.telemetry import Telemetry
@@ -52,6 +53,7 @@ _TOOL_LABELS: dict[str, str] = {
     "analyze_dispatch": "Checking dispatch balance",
     "analyze_compliance": "Checking shift compliance",
     "analyze_reachability": "Checking for unreachable stops",
+    "analyze_service_sanity": "Checking service times",
     "route_benchmark": "Re-solving each route",
     "fleet_benchmark": "Re-solving the whole fleet",
 }
@@ -447,6 +449,9 @@ class AnalysisOrchestrator:
             "work_rules": self._config.work_rules,
             "traffic_profile": self._config.traffic,
             "benchmark_sink": benchmark_sink,
+            # The active industry profile (or None) — used by the service-sanity
+            # check to judge dwell times against the vertical's plausible band.
+            "industry_profile": get_profile(self._config.industry),
         }
         if getattr(tool, "is_benchmark", False):
             # Hand the config to the benchmark tools so each derives an adaptive,

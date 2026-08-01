@@ -86,7 +86,8 @@ export type FindingCategory =
   | "territory"
   | "dispatch"
   | "outlier"
-  | "reachability";
+  | "reachability"
+  | "data_quality";
 
 export type FindingSeverity = "info" | "low" | "medium" | "high" | "critical";
 
