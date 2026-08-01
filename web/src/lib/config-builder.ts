@@ -10,7 +10,7 @@
  * regardless; a mismatch here surfaces as a 422 rather than a wrong analysis.
  */
 
-import type { AnalysisConfig, TrafficProfile } from "./types";
+import type { AnalysisConfig, GradingWeights, IndustryProfile, TrafficProfile } from "./types";
 
 export type TrafficChoice = "free_flow" | "urban_us";
 
@@ -41,6 +41,11 @@ export interface PanelState {
 
   includeBenchmark: boolean;
   includePdf: boolean;
+
+  /** Chosen industry preset key, or null for the industry-agnostic default. */
+  industry: string | null;
+  /** The preset's grade blend, carried so the backend uses it; null = default. */
+  gradingWeights: GradingWeights | null;
 }
 
 /** Matches the backend's own defaults, so an untouched panel is a plain run. */
@@ -58,7 +63,36 @@ export const DEFAULT_PANEL: PanelState = {
   traffic: "free_flow",
   includeBenchmark: true,
   includePdf: false,
+  industry: null,
+  gradingWeights: null,
 };
+
+/**
+ * Apply an industry preset to the panel: it fills the visible service-time and
+ * shift fields (still editable afterwards) and carries the grade blend. Passing
+ * null clears back to the industry-agnostic defaults.
+ */
+export function applyIndustryProfile(
+  panel: PanelState,
+  profile: IndustryProfile | null,
+): PanelState {
+  if (profile === null) {
+    return {
+      ...panel,
+      industry: null,
+      gradingWeights: null,
+      serviceDefaultMinutes: DEFAULT_PANEL.serviceDefaultMinutes,
+      maxShiftHours: DEFAULT_PANEL.maxShiftHours,
+    };
+  }
+  return {
+    ...panel,
+    industry: profile.key,
+    gradingWeights: profile.grading_weights,
+    serviceDefaultMinutes: profile.default_service_minutes,
+    maxShiftHours: profile.shift_hours,
+  };
+}
 
 /** Free-flow is the identity profile: no bands, factor 1.0, nothing changes. */
 const FREE_FLOW: TrafficProfile = { bands: [], default_factor: 1.0 };
@@ -110,6 +144,10 @@ export function buildConfig(panel: PanelState): AnalysisConfig {
     overutilization_threshold: 0.95,
     include_benchmark: panel.includeBenchmark,
     include_pdf: panel.includePdf,
+    // Omitted (not null) when no industry is chosen, so an agnostic run sends a
+    // config identical to before this feature.
+    ...(panel.industry ? { industry: panel.industry } : {}),
+    ...(panel.gradingWeights ? { grading_weights: panel.gradingWeights } : {}),
   };
 }
 

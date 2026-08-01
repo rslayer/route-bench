@@ -481,3 +481,17 @@ class TestHealthz:
         _patch_osrm_probe(monkeypatch, _HtmlResponse())
 
         assert app.get("/healthz").json()["checks"]["osrm_reachable"] is False
+
+
+class TestIndustryProfilesEndpoint:
+    def test_lists_all_presets_with_valid_weights(self, app: TestClient) -> None:
+        resp = app.get("/industry-profiles")
+        assert resp.status_code == 200
+        profiles = resp.json()
+        keys = {p["key"] for p in profiles}
+        assert keys == {"courier", "big_bulky", "dsd_quickdrop", "dsd_merchandising"}
+        for p in profiles:
+            w = p["grading_weights"]
+            assert abs(sum(w.values()) - 1.0) < 1e-6
+            assert p["default_service_minutes"] > 0
+            assert p["shift_hours"] > 0

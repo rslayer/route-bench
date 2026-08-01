@@ -19,6 +19,7 @@ from sse_starlette.sse import EventSourceResponse
 from routebench.app.sessions import SessionRegistry, SessionState, SessionStatus
 from routebench.app.worker import JobRequest
 from routebench.core.config import MAX_UPLOAD_BYTES, AnalysisConfig
+from routebench.core.industry import INDUSTRY_PROFILES, IndustryProfile
 from routebench.core.validation import validate_csv
 from routebench.core.version import build_info
 from routebench.infra.storage.local import LocalStorageBackend
@@ -357,6 +358,13 @@ async def download_routes_geojson(request: Request, session_id: str) -> Redirect
         # or the browser blocks the cross-origin read (no CORS on the signed URL).
         allow_redirect=False,
     )
+
+
+@router.get("/industry-profiles", response_model=list[IndustryProfile])
+async def industry_profiles() -> list[IndustryProfile]:
+    """The industry benchmark presets, so the web panel applies them from one
+    source of truth (core/industry.py) rather than duplicating the numbers."""
+    return list(INDUSTRY_PROFILES.values())
 
 
 @router.get("/health")

@@ -467,6 +467,26 @@ export interface TrafficProfile {
 /** Named profiles the API accepts in place of an inline TrafficProfile. */
 export type NamedTrafficProfile = "urban_us";
 
+export interface GradingWeights {
+  sequencing: number;
+  fleet: number;
+  time: number;
+  compliance: number;
+  density: number;
+}
+
+/** An industry benchmark preset — GET /industry-profiles (core/industry.py). */
+export interface IndustryProfile {
+  key: string;
+  label: string;
+  description: string;
+  default_service_minutes: number;
+  shift_hours: number;
+  stops_per_route: [number, number];
+  service_minutes_band: [number, number];
+  grading_weights: GradingWeights;
+}
+
 export interface AnalysisConfig {
   work_rules: WorkRules;
   service_time: ServiceTimeModel;
@@ -476,6 +496,10 @@ export interface AnalysisConfig {
   overutilization_threshold: number;
   include_benchmark: boolean;
   include_pdf: boolean;
+  /** Which industry preset was applied (provenance); omitted when none. */
+  industry?: string | null;
+  /** Composite grade blend; omitted => the backend's default weights. */
+  grading_weights?: GradingWeights | null;
 }
 
 // ---------------------------------------------------------------------------

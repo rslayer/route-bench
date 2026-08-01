@@ -15,6 +15,7 @@ import type {
   AnalysisConfig,
   AnalysisReport,
   BuildInfo,
+  IndustryProfile,
   RoutesGeoJSON,
   SessionStatus,
 } from "./types";
@@ -114,6 +115,10 @@ export function getRoutesGeoJSON(sessionId: string): Promise<RoutesGeoJSON> {
 
 export function getBuildInfo(): Promise<BuildInfo> {
   return getJson<BuildInfo>("/health");
+}
+
+export function getIndustryProfiles(): Promise<IndustryProfile[]> {
+  return getJson<IndustryProfile[]>("/industry-profiles");
 }
 
 export function reportUrl(sessionId: string, kind: "html" | "pdf"): string {

@@ -12,8 +12,14 @@ import ColumnMapper, {
 import ConstraintsPanel from "@/components/ConstraintsPanel";
 import { clearStagedFile, peekStagedFile } from "@/components/Dropzone";
 import RowPreview from "@/components/RowPreview";
-import { ApiError, createSession } from "@/lib/api";
-import { DEFAULT_PANEL, buildConfig, type PanelState } from "@/lib/config-builder";
+import { ApiError, createSession, getIndustryProfiles } from "@/lib/api";
+import {
+  DEFAULT_PANEL,
+  applyIndustryProfile,
+  buildConfig,
+  type PanelState,
+} from "@/lib/config-builder";
+import type { IndustryProfile } from "@/lib/types";
 import { rememberRun } from "@/lib/runs";
 import { headersMatchSchema } from "@/lib/schema";
 import { formatBytes } from "@/lib/upload";
@@ -45,7 +51,16 @@ export default function UploadPage() {
   const [parseError, setParseError] = useState<string | null>(null);
   const [mapping, setMapping] = useState<Mapping>({});
   const [panel, setPanel] = useState<PanelState>(DEFAULT_PANEL);
+  const [industryProfiles, setIndustryProfiles] = useState<IndustryProfile[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  useEffect(() => {
+    // Best-effort: if it fails, the picker just doesn't show and the run is
+    // industry-agnostic, exactly as before this feature.
+    getIndustryProfiles()
+      .then(setIndustryProfiles)
+      .catch(() => setIndustryProfiles([]));
+  }, []);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<ApiError | Error | null>(null);
 
@@ -149,6 +164,39 @@ export default function UploadPage() {
             as we read them.
           </p>
           <RowPreview headers={parsed.headers} rows={parsed.rows} mapping={mapping} />
+
+          {industryProfiles.length > 0 ? (
+            <div className="industry-picker">
+              <h2 className="section-title">Industry benchmark</h2>
+              <p className="section-lede">
+                Tune the analysis to your vertical — this sets the service-time default, shift
+                length, and how the grade is weighted. Everything below stays editable.
+              </p>
+              <select
+                aria-label="Industry benchmark profile"
+                value={panel.industry ?? ""}
+                onChange={(e) => {
+                  const key = e.target.value || null;
+                  const profile = key
+                    ? (industryProfiles.find((p) => p.key === key) ?? null)
+                    : null;
+                  setPanel((p) => applyIndustryProfile(p, profile));
+                }}
+              >
+                <option value="">General (no industry)</option>
+                {industryProfiles.map((p) => (
+                  <option key={p.key} value={p.key}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+              {panel.industry ? (
+                <p className="section-lede">
+                  {industryProfiles.find((p) => p.key === panel.industry)?.description}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
 
           <ConstraintsPanel
             panel={panel}
