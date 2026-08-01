@@ -495,3 +495,17 @@ class TestIndustryProfilesEndpoint:
             assert abs(sum(w.values()) - 1.0) < 1e-6
             assert p["default_service_minutes"] > 0
             assert p["shift_hours"] > 0
+
+
+class TestSamplesMount:
+    def test_samples_are_served(self, app: TestClient) -> None:
+        """The /samples static mount must actually register — the directory path
+        was one level too shallow, so it silently never mounted."""
+        resp = app.get("/samples/v1/sample_fleet.csv")
+        assert resp.status_code == 200
+        assert resp.text.startswith("route_id,")
+
+    def test_industry_demo_is_served(self, app: TestClient) -> None:
+        resp = app.get("/samples/industry/courier.csv")
+        assert resp.status_code == 200
+        assert "route_id" in resp.text

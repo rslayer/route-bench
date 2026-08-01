@@ -299,9 +299,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(session_router)
     app.include_router(admin_router)
 
-    # Serve sample reports as static files
-    samples_dir = Path(__file__).parent.parent.parent.parent / "data" / "samples"
+    # Serve sample fleets as static files. This module is
+    # src/routebench/app/api/app.py, so the repo root — where data/ lives — is
+    # FIVE parents up (api, app, routebench, src, root); the earlier .parent*4
+    # landed on src/, so data/samples never existed and the whole /samples mount
+    # silently never registered.
+    samples_dir = Path(__file__).resolve().parents[4] / "data" / "samples"
     if samples_dir.exists():
         app.mount("/samples", StaticFiles(directory=str(samples_dir)), name="samples")
+        logger.info("samples_mounted", path=str(samples_dir))
+    else:
+        logger.warning("samples_dir_missing", path=str(samples_dir))
 
     return app
