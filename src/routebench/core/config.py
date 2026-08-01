@@ -15,6 +15,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from routebench.core.industry import GradingWeights
+
 # The repository root, so the .env file is found regardless of the working
 # directory the process was launched from. This module is
 # src/routebench/core/config.py, so the root is three parents up. env_file=".env"
@@ -175,6 +177,13 @@ class AnalysisConfig(BaseModel):
     overutilization_threshold: float = Field(default=0.95, ge=0, le=1)
     include_benchmark: bool = True
     include_pdf: bool = False
+
+    # Industry benchmark profile. `industry` records which preset (if any) was
+    # applied, for provenance; `grading_weights` is the actual composite blend the
+    # grade uses — None means the industry-agnostic default. The web panel fills
+    # both from core/industry.py so the choice stays visible and editable.
+    industry: str | None = None
+    grading_weights: GradingWeights | None = None
 
     # OR-Tools' guided local search runs until its time limit rather than
     # stopping when it converges, so these are spent in full whenever the

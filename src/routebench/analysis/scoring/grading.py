@@ -480,8 +480,15 @@ def compute_grade(
     route_metrics: dict[str, RouteMetrics],
     findings: list[Finding],
     benchmark: BenchmarkResult | None = None,
+    weights: dict[str, float] | None = None,
 ) -> Grade:
-    """Grade a fleet. Deterministic: same inputs, same grade, always."""
+    """Grade a fleet. Deterministic: same inputs, same grade, always.
+
+    `weights` overrides the composite blend (e.g. from an industry profile);
+    None uses the industry-agnostic default. Dimension scores are unaffected —
+    only how they are combined — so they stay comparable across industries.
+    """
+    active_weights = weights if weights is not None else WEIGHTS
     dimensions = [
         grade_sequencing(route_metrics, benchmark),
         grade_fleet(route_metrics, benchmark),
@@ -493,18 +500,18 @@ def compute_grade(
     # Renormalize over what was actually graded, so an ungraded dimension does
     # not silently score zero and drag the composite down.
     graded = [d for d in dimensions if not d.not_graded and d.score is not None]
-    total_weight = sum(WEIGHTS[d.key] for d in graded)
+    total_weight = sum(active_weights[d.key] for d in graded)
 
     if total_weight <= 0:
         overall = OverallGrade(score=None, letter=None)
     else:
-        score = sum(WEIGHTS[d.key] * (d.score or 0.0) for d in graded) / total_weight
+        score = sum(active_weights[d.key] * (d.score or 0.0) for d in graded) / total_weight
         overall = OverallGrade(score=score, letter=letter_for(score))
 
     grade = Grade(
         grading_version=GRADING_VERSION,
         overall=overall,
-        weights=dict(WEIGHTS),
+        weights=dict(active_weights),
         dimensions=dimensions,
     )
 

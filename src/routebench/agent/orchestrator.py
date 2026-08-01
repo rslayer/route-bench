@@ -501,6 +501,11 @@ class AnalysisOrchestrator:
                 route_metrics=route_metrics,
                 findings=findings,
                 benchmark=benchmark,
+                weights=(
+                    self._config.grading_weights.as_dict()
+                    if self._config.grading_weights is not None
+                    else None
+                ),
             )
 
         return AnalysisReport(

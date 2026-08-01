@@ -477,3 +477,47 @@ class TestCvHandlesNonFinite:
 
     def test_all_finite_unchanged(self) -> None:
         assert _cv([100.0, 200.0, 300.0]) is not None
+
+
+class TestConfigurableWeights:
+    """Industry weights reshape the composite without touching dimension scores."""
+
+    def test_none_weights_matches_default(self) -> None:
+        metrics = _two_routes()
+        default = compute_grade(_fm(2), metrics, [], _benchmark(7.0))
+        explicit = compute_grade(_fm(2), metrics, [], _benchmark(7.0), weights=dict(WEIGHTS))
+        assert explicit.overall.score == pytest.approx(default.overall.score)
+
+    def test_custom_weights_change_the_composite(self) -> None:
+        metrics = _two_routes()
+        bench = _benchmark(7.0)
+        base = compute_grade(_fm(2), metrics, [], bench)
+        # Pour almost all weight onto compliance; the composite must move toward
+        # the compliance dimension's score.
+        heavy = compute_grade(
+            _fm(2),
+            metrics,
+            [],
+            bench,
+            weights={
+                "sequencing": 0.0,
+                "fleet": 0.0,
+                "time": 0.0,
+                "compliance": 1.0,
+                "density": 0.0,
+            },
+        )
+        assert heavy.overall.score != pytest.approx(base.overall.score)
+        assert heavy.weights["compliance"] == 1.0
+
+    def test_dimension_scores_are_unchanged_by_weights(self) -> None:
+        metrics = _two_routes()
+        bench = _benchmark(7.0)
+        a = compute_grade(_fm(2), metrics, [], bench)
+        b = compute_grade(
+            _fm(2), metrics, [], bench,
+            weights={"sequencing": 0.6, "fleet": 0.1, "time": 0.1, "compliance": 0.1, "density": 0.1},
+        )
+        sa = {d.key: d.score for d in a.dimensions}
+        sb = {d.key: d.score for d in b.dimensions}
+        assert sa == sb
