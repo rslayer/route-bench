@@ -226,9 +226,13 @@ class AnalysisConfig(BaseModel):
     # parallel. Floored at route_min_floor_s so even a heavily divided budget
     # still gives each route a fair solve (TSPTW on a small route converges in
     # well under a second).
-    route_solver_envelope_s: int = Field(default=180, gt=0)
-    route_min_floor_s: int = Field(default=1, gt=0)
-    route_benchmark_workers: int = Field(default=8, gt=0)
+    # Also caller-supplied via `config`, so bounded for the same abuse reason as
+    # the limits above: the envelope caps total solve wall-clock; workers is a
+    # thread-pool size (an unbounded value would let a request spawn an enormous
+    # pool). Ceilings sit at/above the job timeout and a sane worker count.
+    route_solver_envelope_s: int = Field(default=180, gt=0, le=600)
+    route_min_floor_s: int = Field(default=1, gt=0, le=600)
+    route_benchmark_workers: int = Field(default=8, gt=0, le=64)
 
     @field_validator("industry")
     @classmethod
