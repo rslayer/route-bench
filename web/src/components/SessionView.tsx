@@ -399,6 +399,9 @@ function useCountdown(seconds: number | null): number | null {
   const [remaining, setRemaining] = useState<number | null>(seconds);
 
   useEffect(() => {
+    // Re-seed the countdown whenever the server pushes a new estimate, then tick
+    // it down locally; syncing to the incoming prop is the intended reset.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setRemaining(seconds);
     if (seconds === null) return;
     const id = setInterval(() => {

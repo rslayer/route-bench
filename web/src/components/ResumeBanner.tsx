@@ -25,6 +25,9 @@ export default function ResumeBanner() {
   const [run, setRun] = useState<RunRecord | null>(null);
 
   useEffect(() => {
+    // SSR-safe hydration read: the active run comes from localStorage, so state
+    // starts null and is resolved on mount and whenever the route changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setRun(activeRun());
   }, [pathname]);
 

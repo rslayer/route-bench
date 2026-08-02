@@ -31,6 +31,9 @@ export default function ThemeToggle() {
   const [choice, setChoice] = useState<ThemeChoice | null>(null);
 
   useEffect(() => {
+    // SSR-safe hydration read: the saved theme lives in localStorage, so state
+    // starts null and the stored choice is read once on mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setChoice(readChoice());
   }, []);
 
