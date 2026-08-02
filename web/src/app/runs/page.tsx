@@ -16,6 +16,9 @@ export default function RunsPage() {
   const [runs, setRuns] = useState<RunRecord[] | null>(null);
 
   useEffect(() => {
+    // SSR-safe hydration read: runs live in localStorage, unavailable on the
+    // server, so state starts null and is filled once on mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setRuns(listRuns());
   }, []);
 
