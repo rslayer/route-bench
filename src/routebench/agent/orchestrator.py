@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -356,14 +357,20 @@ class AnalysisOrchestrator:
         Not a guess for the two that matter. OR-Tools' guided local search runs
         until its configured time limit rather than stopping when it converges,
         so a benchmark tool spends its budget in full every time — which makes
-        this a schedule, not an estimate. The per-route limit is paid once per
-        route; the fleet limit once.
+        this a schedule, not an estimate. The fleet limit is paid once; the
+        per-route solves run in parallel, so their wall-clock is about
+        ceil(n_routes / workers) batches of the per-route limit, not the sum.
         """
         if getattr(tool, "requires_fleet_matrix", False):
             total_stops = sum(len(r.stops) for r in fleet.routes)
             return float(fleet_time_limit_s(total_stops, self._config))
         if getattr(tool, "is_benchmark", False):
-            return float(sum(route_time_limit_s(len(r.stops), self._config) for r in fleet.routes))
+            n = len(fleet.routes)
+            if n == 0:
+                return _FAST_TOOL_SECONDS
+            per_route = [route_time_limit_s(len(r.stops), self._config, n) for r in fleet.routes]
+            batches = math.ceil(n / self._config.route_benchmark_workers)
+            return float(batches * max(per_route))
         return _FAST_TOOL_SECONDS
 
     def _report(self, pct: int, detail: str, seconds_remaining: int | None = None) -> None:

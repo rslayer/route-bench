@@ -29,15 +29,15 @@ DEPOT_TOLERANCE_DEG = 1e-6
 # configured time limit.
 MAX_FLEET_BENCHMARK_STOPS = 300
 
-# Per-route re-solve caps. The route benchmark solves one TSPTW per route, each
-# to a size-scaled time limit, so its total wall-time grows with BOTH the route
-# count and the stop count. Above either cap the re-solve is skipped and the
-# fleet is analysed descriptively (the grade falls back to a nearest-neighbour
-# sequencing baseline). Set to the historical hard-reject limits so behaviour
-# at or below them is unchanged; larger fleets now degrade here instead of being
-# rejected at validation.
+# Per-route re-solve stop cap. The route benchmark solves one TSPTW per route,
+# each to a limit divided out of a shared solver envelope (see
+# route_time_limit_s), so route COUNT is bounded by that envelope, not by a cap.
+# Total stop count is still a real ceiling on the matrix + solve work; above it
+# the re-solve is skipped and the fleet is analysed descriptively (the grade
+# falls back to a nearest-neighbour sequencing baseline). Set to the historical
+# hard-reject limit so behaviour at or below it is unchanged; larger fleets now
+# degrade here instead of being rejected at validation.
 MAX_ROUTE_BENCHMARK_STOPS = 5_000
-MAX_ROUTE_BENCHMARK_ROUTES = 50
 
 
 def fleet_depot(fleet: Fleet) -> tuple[float, float] | None:

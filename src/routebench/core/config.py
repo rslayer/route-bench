@@ -191,19 +191,44 @@ class AnalysisConfig(BaseModel):
     # total solve time is roughly:
     #   n_routes * route_benchmark_time_limit_s + fleet_benchmark_time_limit_s
     # Keep that under Settings.job_timeout_seconds for the fleet sizes you accept.
-    route_benchmark_time_limit_s: int = Field(default=30, gt=0)
-    fleet_benchmark_time_limit_s: int = Field(default=120, gt=0)
+    #
+    # Upper bounds matter for abuse, not just ergonomics: this model is built
+    # from the per-request `config` form field, so without a ceiling a caller
+    # could set a tiny fleet with a huge limit and make every job burn to the
+    # job timeout, exhausting the single-worker queue with minimal input. The
+    # caps below sit at/above the job timeout so a legitimate operator can still
+    # tune them, while a hostile value is rejected as a 422 rather than accepted.
+    route_benchmark_time_limit_s: int = Field(default=30, gt=0, le=600)
+    fleet_benchmark_time_limit_s: int = Field(default=120, gt=0, le=600)
 
     # Adaptive solver budget: scale the solve time with the problem size instead
     # of spending the full limit on every fleet. Small fleets finish in seconds;
     # large ones still get the limits above as a ceiling. Off -> the fixed limits
     # apply to every run (the strongest, slowest baseline). See
     # analysis/benchmark/budget.py.
+    # Per-stop coefficients are also caller-supplied via `config`; cap them so a
+    # request cannot inflate the adaptive budget past the fixed ceilings above.
     adaptive_solver_budget: bool = True
-    solver_seconds_per_route_stop: float = Field(default=1.5, ge=0)
-    route_min_time_limit_s: int = Field(default=5, gt=0)
-    solver_seconds_per_fleet_stop: float = Field(default=3.0, ge=0)
-    fleet_min_time_limit_s: int = Field(default=20, gt=0)
+    solver_seconds_per_route_stop: float = Field(default=1.5, ge=0, le=60, allow_inf_nan=False)
+    route_min_time_limit_s: int = Field(default=5, gt=0, le=600)
+    solver_seconds_per_fleet_stop: float = Field(default=3.0, ge=0, le=60, allow_inf_nan=False)
+    fleet_min_time_limit_s: int = Field(default=20, gt=0, le=600)
+
+    # Fleet-wide envelope for the per-route benchmark. Each route solves
+    # INDEPENDENTLY — route count never changes whether a route CAN be solved,
+    # only the total wall-clock, since every route's solve shares this budget.
+    # The per-route limit is the size-scaled limit above, further capped so the
+    # whole fleet's solving fits this envelope given route_benchmark_workers
+    # running in parallel: wall time is about ceil(n_routes / workers) batches of
+    # the per-route limit. This is what keeps a 60-truck depot of tiny routes
+    # fully benchmarked instead of dropped on a blunt route-count cap; a fleet up
+    # to ~(workers * ceiling)/rate routes is unaffected and just runs in
+    # parallel. Floored at route_min_floor_s so even a heavily divided budget
+    # still gives each route a fair solve (TSPTW on a small route converges in
+    # well under a second).
+    route_solver_envelope_s: int = Field(default=180, gt=0)
+    route_min_floor_s: int = Field(default=1, gt=0)
+    route_benchmark_workers: int = Field(default=8, gt=0)
 
     @field_validator("industry")
     @classmethod

@@ -17,15 +17,36 @@ Large fleets no longer hit a hard error. The behaviour is now tiered:
 
 | Fleet size | Behaviour |
 |---|---|
-| ≤ 50 routes **and** ≤ 5,000 stops | Full analysis: descriptive metrics + per-route optimal re-solve. Unchanged. |
+| ≤ 5,000 stops, **any** route count | Full analysis: descriptive metrics + **per-route optimal re-solve on every route.** There is no route-count cap — routes solve independently, in parallel, sharing a fixed solver time envelope (see below). |
 | ≤ 300 stops, ≥ 2 routes, shared depot | Also runs the fleet-wide VRPTW benchmark. Unchanged. |
-| Above the route/stop benchmark caps, up to **1,000 routes / 50,000 stops** | **Accepted, analysed descriptively.** The optimal re-solve is skipped; the grade falls back to a nearest-neighbour sequencing baseline. The reason appears in `analyses_skipped`. |
+| 5,000 – 50,000 stops | **Accepted, analysed descriptively.** The per-route re-solve is skipped; the grade falls back to a nearest-neighbour sequencing baseline. The reason appears in `analyses_skipped`. |
 | Above 1,000 routes or 50,000 stops | Rejected at validation (a box-safety ceiling, not a product limit). |
 
 Caps live in one place each: `analysis/benchmark/fleet_matrix.py`
-(`MAX_ROUTE_BENCHMARK_STOPS`, `MAX_ROUTE_BENCHMARK_ROUTES`,
-`MAX_FLEET_BENCHMARK_STOPS`) and `core/schemas.py` (`MAX_FLEET_ROUTES`), with
-`core/validation.py` reporting the friendly errors.
+(`MAX_ROUTE_BENCHMARK_STOPS`, `MAX_FLEET_BENCHMARK_STOPS`) and `core/schemas.py`
+(`MAX_FLEET_ROUTES`), with `core/validation.py` reporting the friendly errors.
+
+### Why there is no route-count cap
+
+A per-route benchmark solves **one TSPTW per route, independently** — a 20-stop
+route solves identically whether it sits in a 10-route or 500-route fleet. Route
+count therefore affects only total wall-clock, not whether a route *can* be
+solved. So instead of a blunt cap that would drop the benchmark for an ordinary
+60-truck depot, the per-route solves:
+
+- **share a fixed time envelope** (`route_solver_envelope_s`, default 180s). Each
+  route's limit is the size-scaled budget, further divided so the whole fleet
+  fits the envelope: `limit ≈ envelope / ceil(n_routes / workers)`, floored at
+  `route_min_floor_s`. A fleet up to ~48 routes is unaffected — its routes were
+  already inside the envelope — and just runs in parallel; larger fleets get a
+  tighter (but still ample — TSPTW on a small route converges sub-second) share.
+- **run in parallel** (`route_benchmark_workers`, default 8). OR-Tools releases
+  the GIL during search, so a thread pool gives real concurrency and the fleet's
+  wall-clock is about the slowest batch, not the sum.
+
+Net: every route in any accepted fleet is benchmarked, within a bounded
+wall-clock, with no route-count cliff. Only the 5,000-stop ceiling (a genuine
+bound on total matrix + solve work) skips the re-solve.
 
 **Cost guard.** On Google, a large descriptive run still fetches per-route
 matrices. The daily matrix budget (`DAILY_MATRIX_BUDGET_USD`) reserves worst-case

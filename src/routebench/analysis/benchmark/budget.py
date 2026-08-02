@@ -13,6 +13,8 @@ so the thorough-baseline behaviour is one flag away.
 
 from __future__ import annotations
 
+import math
+
 from routebench.core.config import AnalysisConfig
 
 
@@ -20,12 +22,27 @@ def _clamp(value: int, low: int, high: int) -> int:
     return max(low, min(high, value))
 
 
-def route_time_limit_s(n_stops: int, config: AnalysisConfig) -> int:
-    """Per-route TSPTW budget, scaled by that route's stop count."""
+def route_time_limit_s(n_stops: int, config: AnalysisConfig, n_routes: int = 1) -> int:
+    """Per-route TSPTW budget.
+
+    Scaled by the route's own stop count, then — when many routes share the one
+    solver envelope — capped so the whole fleet's solving fits
+    route_solver_envelope_s with route_benchmark_workers running in parallel:
+    wall time is about ceil(n_routes / workers) batches of this limit. Route
+    count only tightens each route's share; it never disqualifies a route,
+    because routes solve independently. A fleet small enough that the size-scaled
+    limit already fits the envelope (roughly workers*ceiling/rate routes) is
+    unaffected — it just runs in parallel.
+    """
     if not config.adaptive_solver_budget:
         return config.route_benchmark_time_limit_s
     scaled = round(config.solver_seconds_per_route_stop * max(0, n_stops))
-    return _clamp(scaled, config.route_min_time_limit_s, config.route_benchmark_time_limit_s)
+    base = _clamp(scaled, config.route_min_time_limit_s, config.route_benchmark_time_limit_s)
+    if n_routes <= 1:
+        return base
+    batches = math.ceil(n_routes / config.route_benchmark_workers)
+    share = config.route_solver_envelope_s // max(1, batches)
+    return _clamp(min(base, share), config.route_min_floor_s, config.route_benchmark_time_limit_s)
 
 
 def fleet_time_limit_s(total_stops: int, config: AnalysisConfig) -> int:

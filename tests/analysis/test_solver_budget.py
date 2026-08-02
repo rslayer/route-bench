@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 from routebench.analysis.benchmark.budget import fleet_time_limit_s, route_time_limit_s
 from routebench.core.config import AnalysisConfig
 
@@ -50,6 +52,39 @@ class TestAdaptiveFleet:
     def test_caps_large_fleets(self) -> None:
         cfg = _cfg(fleet_benchmark_time_limit_s=120, solver_seconds_per_fleet_stop=3.0)
         assert fleet_time_limit_s(80, cfg) == 120  # 240 capped to 120
+
+
+class TestSharedEnvelope:
+    """Many routes share one solver envelope; route count tightens each share
+    but never disqualifies a route (routes solve independently)."""
+
+    def test_small_route_count_is_unchanged(self) -> None:
+        # A 20-stop route's size-scaled limit is the 30s ceiling. With defaults
+        # (8 workers, 180s envelope) the per-route share stays >= 30 up to ~48
+        # routes, so those fleets get the exact same budget as before.
+        cfg = _cfg()
+        assert route_time_limit_s(20, cfg, n_routes=1) == 30
+        assert route_time_limit_s(20, cfg, n_routes=8) == 30
+        assert route_time_limit_s(20, cfg, n_routes=48) == 30
+
+    def test_large_route_count_shrinks_the_share(self) -> None:
+        cfg = _cfg()
+        # 64 routes -> ceil(64/8)=8 batches -> 180//8 = 22s each.
+        assert route_time_limit_s(20, cfg, n_routes=64) == 22
+        # 200 routes -> ceil(200/8)=25 batches -> 180//25 = 7s each.
+        assert route_time_limit_s(20, cfg, n_routes=200) == 7
+
+    def test_share_is_floored_not_zeroed(self) -> None:
+        cfg = _cfg()
+        # A degenerate route count drives the raw share below 1s; floored to 1.
+        assert route_time_limit_s(20, cfg, n_routes=5000) == cfg.route_min_floor_s
+
+    def test_wall_clock_stays_within_the_envelope(self) -> None:
+        cfg = _cfg()
+        for n in (48, 60, 120, 250):
+            limit = route_time_limit_s(20, cfg, n_routes=n)
+            batches = math.ceil(n / cfg.route_benchmark_workers)
+            assert batches * limit <= cfg.route_solver_envelope_s
 
 
 class TestEndToEndShape:
