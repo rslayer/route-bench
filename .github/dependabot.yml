@@ -1,0 +1,32 @@
+# Dependency & action update automation.
+#
+# The SCA gate in ci.yml (pip-audit) surfaces known CVEs in pinned dependencies;
+# dependabot is what actually remediates them — one bump per PR, each validated
+# by CI in isolation, which is safer than hand-bumping several (e.g. starlette,
+# python-multipart) transitively in one lockfile change.
+version: 2
+updates:
+  # Python dependencies (uv-managed: pyproject.toml + uv.lock). The "uv"
+  # ecosystem updates transitive pins in the lockfile too, which is what the
+  # current advisories (starlette, python-multipart via fastapi) require.
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels: ["dependencies", "security"]
+
+  # GitHub Actions pinned in .github/workflows/*.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies"]
+
+  # Web frontend.
+  - package-ecosystem: "npm"
+    directory: "/web"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels: ["dependencies"]

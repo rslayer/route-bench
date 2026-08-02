@@ -66,7 +66,8 @@ class ReportDocument:
         Returns:
             Complete HTML document as a string.
         """
-        css = Markup((_STATIC_DIR / "styles.css").read_text())
+        # Our own shipped stylesheet, no user data -> safe to mark trusted.
+        css = Markup((_STATIC_DIR / "styles.css").read_text())  # nosec B704
 
         # Build chart SVGs
         route_metrics_dict: dict[str, Any] = {
@@ -76,11 +77,15 @@ class ReportDocument:
             self._analysis.benchmark.model_dump() if self._analysis.benchmark else None
         )
 
+        # Chart SVGs are rendered by vl_convert from Altair specs, which XML-escapes
+        # all text: a route_id of "<script>" renders as the literal "&lt;script&gt;"
+        # (pinned in tests/security/test_chart_svg_escaping.py). Marking the already
+        # safe SVG trusted here cannot let user data break out of it.
         charts = {
-            "time_distribution": Markup(time_distribution(route_metrics_dict)),
-            "sequencing_index": Markup(sequencing_index_distribution(route_metrics_dict)),
-            "capacity_utilization": Markup(capacity_utilization_chart(route_metrics_dict)),
-            "benchmark_gap": Markup(benchmark_gap_chart(benchmark_dict)),
+            "time_distribution": Markup(time_distribution(route_metrics_dict)),  # nosec B704
+            "sequencing_index": Markup(sequencing_index_distribution(route_metrics_dict)),  # nosec B704
+            "capacity_utilization": Markup(capacity_utilization_chart(route_metrics_dict)),  # nosec B704
+            "benchmark_gap": Markup(benchmark_gap_chart(benchmark_dict)),  # nosec B704
         }
 
         # Sort findings by severity for template
