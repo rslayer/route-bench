@@ -19,6 +19,7 @@ from pydantic import ValidationError as PydanticValidationError
 from routebench.core.config import AnalysisConfig
 from routebench.core.industry import get_profile
 from routebench.core.schemas import (
+    MAX_FLEET_ROUTES,
     DefaultApplied,
     Fleet,
     Route,
@@ -50,6 +51,17 @@ OPTIONAL_COLUMNS = {
 }
 
 EARTH_RADIUS_MILES = 3958.8
+
+# Absolute structural ceilings. These protect the box (CSV parse, per-route
+# matrix fetch, scorecard) from a pathological upload; they are deliberately
+# ~10x the large-ops target range (10k-20k stops), not a product limit. A fleet
+# that is too large to re-solve against an optimal is still ACCEPTED and
+# analysed descriptively — the optimal benchmark is skipped, not the whole run
+# (see analysis/benchmark: MAX_ROUTE_BENCHMARK_STOPS / _ROUTES). Only a fleet
+# past these ceilings is rejected outright. MAX_ROUTES mirrors the Fleet model's
+# own backstop (schemas.MAX_FLEET_ROUTES) so the two cannot drift.
+MAX_TOTAL_STOPS = 50_000
+MAX_ROUTES = MAX_FLEET_ROUTES
 
 
 def _haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -406,13 +418,13 @@ def validate_csv(
     # Group by route and build Fleet
     route_groups = df.partition_by("route_id", as_dict=True, maintain_order=True)
 
-    if len(route_groups) > 50:
+    if len(route_groups) > MAX_ROUTES:
         errors.append(
             ValidationError(
                 row=None,
                 column=None,
                 code="TOO_MANY_ROUTES",
-                message=f"Fleet has {len(route_groups)} routes, max is 50",
+                message=f"Fleet has {len(route_groups)} routes, max is {MAX_ROUTES:,}",
             )
         )
         return None, ValidationReport(
@@ -588,13 +600,13 @@ def validate_csv(
         )
 
     # Check total stops limit
-    if total_stops > 5000:
+    if total_stops > MAX_TOTAL_STOPS:
         errors.append(
             ValidationError(
                 row=None,
                 column=None,
                 code="TOO_MANY_STOPS",
-                message=f"Fleet has {total_stops} total stops, max is 5,000",
+                message=f"Fleet has {total_stops:,} total stops, max is {MAX_TOTAL_STOPS:,}",
             )
         )
         return None, ValidationReport(

@@ -243,16 +243,15 @@ class TestDuplicateStops:
 class TestTooManyRoutes:
     """Tests for fleet size limits."""
 
-    def test_51_routes_error(self, tmp_path: Path) -> None:
-        """51 routes produces an error."""
+    def _n_route_rows(self, n_routes: int) -> list[dict[str, object]]:
         rows: list[dict[str, object]] = []
-        for i in range(51):
-            route_id = f"R{i:03d}"
+        for i in range(n_routes):
+            route_id = f"R{i:04d}"
             rows.append(
                 {
                     "route_id": route_id,
                     "stop_sequence": 0,
-                    "latitude": 32.825 + 0.001 * i,
+                    "latitude": 32.825 + 0.0001 * i,
                     "longitude": -96.775,
                 }
             )
@@ -260,18 +259,35 @@ class TestTooManyRoutes:
                 {
                     "route_id": route_id,
                     "stop_sequence": 1,
-                    "latitude": 32.835 + 0.001 * i,
+                    "latitude": 32.835 + 0.0001 * i,
                     "longitude": -96.765,
                 }
             )
-        csv_path = _write_csv(rows, tmp_path / "many.csv")
+        return rows
+
+    def test_51_routes_now_accepted(self, tmp_path: Path) -> None:
+        """51 routes used to be a hard error; it now validates and degrades to a
+        descriptive analysis instead (the per-route re-solve is skipped, not the
+        whole run)."""
+        csv_path = _write_csv(self._n_route_rows(51), tmp_path / "fiftyone.csv")
+
+        fleet, report = validate_csv(csv_path)
+
+        assert report.is_valid is True
+        assert fleet is not None
+        assert len(fleet.routes) == 51
+
+    def test_too_many_routes_error_at_absolute_ceiling(self, tmp_path: Path) -> None:
+        """Past the absolute structural ceiling a fleet is still rejected."""
+        from routebench.core.validation import MAX_ROUTES
+
+        csv_path = _write_csv(self._n_route_rows(MAX_ROUTES + 1), tmp_path / "toomany.csv")
 
         fleet, report = validate_csv(csv_path)
 
         assert report.is_valid is False
         assert fleet is None
-        codes = [e.code for e in report.errors]
-        assert "TOO_MANY_ROUTES" in codes
+        assert "TOO_MANY_ROUTES" in [e.code for e in report.errors]
 
 
 class TestDefaults:

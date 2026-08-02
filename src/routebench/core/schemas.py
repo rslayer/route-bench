@@ -64,6 +64,14 @@ class Route(BaseModel):
         return v
 
 
+# Absolute structural ceiling on route count — a backstop against a pathological
+# upload, not a product limit. It is far above the per-route-benchmark route cap
+# (analysis/benchmark): a fleet between the two is accepted and analysed
+# descriptively, only one past this is refused. validate_csv reports the friendly
+# error before it ever reaches this model-level guard.
+MAX_FLEET_ROUTES = 1_000
+
+
 class Fleet(BaseModel):
     """A collection of routes from a single upload."""
 
@@ -73,10 +81,10 @@ class Fleet(BaseModel):
 
     @field_validator("routes")
     @classmethod
-    def at_most_50_routes(cls, v: list[Route]) -> list[Route]:
-        """Fleet must have at most 50 routes."""
-        if len(v) > 50:
-            msg = f"Fleet must have at most 50 routes, got {len(v)}"
+    def within_route_ceiling(cls, v: list[Route]) -> list[Route]:
+        """Fleet must not exceed the absolute route ceiling."""
+        if len(v) > MAX_FLEET_ROUTES:
+            msg = f"Fleet must have at most {MAX_FLEET_ROUTES} routes, got {len(v)}"
             raise ValueError(msg)
         return v
 

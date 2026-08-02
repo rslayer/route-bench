@@ -12,7 +12,11 @@ from routebench.analysis.benchmark.compare import (
     compute_fleet_benchmark,
     compute_route_benchmark,
 )
-from routebench.analysis.benchmark.fleet_matrix import MAX_FLEET_BENCHMARK_STOPS
+from routebench.analysis.benchmark.fleet_matrix import (
+    MAX_FLEET_BENCHMARK_STOPS,
+    MAX_ROUTE_BENCHMARK_ROUTES,
+    MAX_ROUTE_BENCHMARK_STOPS,
+)
 from routebench.analysis.benchmark.tsptw import solve_tsptw
 from routebench.analysis.benchmark.vrptw import solve_vrptw
 from routebench.analysis.tools import TOOLS
@@ -321,11 +325,47 @@ class TestCompare:
 class TestBenchmarkTools:
     """Tests for RouteBenchmarkTool and FleetBenchmarkTool."""
 
-    def test_route_benchmark_tool_always_applicable(self) -> None:
+    def test_route_benchmark_applicable_below_the_caps(self) -> None:
         tool = RouteBenchmarkTool()
         stops = [_make_stop("R1", 1, 32.83, -96.77)]
         fleet = _make_fleet(_make_route("R1", stops))
         assert tool.applicability_check(fleet).is_applicable
+
+    def test_route_benchmark_skips_fleet_above_route_cap(self) -> None:
+        """Past the route-count cap the per-route re-solve is skipped; the fleet
+        is still analysed descriptively."""
+        tool = RouteBenchmarkTool()
+        routes = [
+            _make_route(f"R{r}", [_make_stop(f"R{r}", 1, 32.83 + r * 0.001, -96.77)])
+            for r in range(MAX_ROUTE_BENCHMARK_ROUTES + 1)
+        ]
+        fleet = _make_fleet(*routes)
+        check = tool.applicability_check(fleet)
+        assert not check.is_applicable
+        assert "per-route re-solve" in check.reason
+        assert "descriptively" in check.reason
+
+    def test_route_benchmark_skips_fleet_above_stop_cap(self) -> None:
+        """Under the route cap but over the stop cap still skips the re-solve."""
+        tool = RouteBenchmarkTool()
+        # 50 routes (at the route cap) x 101 stops = 5050 > MAX_ROUTE_BENCHMARK_STOPS.
+        per_route = (MAX_ROUTE_BENCHMARK_STOPS // MAX_ROUTE_BENCHMARK_ROUTES) + 1
+        routes = [
+            _make_route(
+                f"R{r}",
+                [
+                    _make_stop(f"R{r}", i, 32.83 + i * 0.0001, -96.77)
+                    for i in range(1, per_route + 1)
+                ],
+            )
+            for r in range(MAX_ROUTE_BENCHMARK_ROUTES)
+        ]
+        fleet = _make_fleet(*routes)
+        assert len(fleet.routes) <= MAX_ROUTE_BENCHMARK_ROUTES
+        assert fleet.total_stops() > MAX_ROUTE_BENCHMARK_STOPS
+        check = tool.applicability_check(fleet)
+        assert not check.is_applicable
+        assert "stops exceeds" in check.reason
 
     def test_fleet_benchmark_applies_to_a_multi_route_fleet(self) -> None:
         tool = FleetBenchmarkTool()

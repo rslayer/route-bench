@@ -11,6 +11,8 @@ from routebench.analysis.benchmark.compare import (
 )
 from routebench.analysis.benchmark.fleet_matrix import (
     MAX_FLEET_BENCHMARK_STOPS,
+    MAX_ROUTE_BENCHMARK_ROUTES,
+    MAX_ROUTE_BENCHMARK_STOPS,
     fleet_depot,
 )
 from routebench.analysis.benchmark.tsptw import solve_tsptw
@@ -38,6 +40,24 @@ class RouteBenchmarkTool:
     is_benchmark: bool = True
 
     def applicability_check(self, fleet: Fleet) -> ApplicabilityResult:
+        n_routes = len(fleet.routes)
+        n_stops = fleet.total_stops()
+        if n_routes > MAX_ROUTE_BENCHMARK_ROUTES:
+            return ApplicabilityResult(
+                is_applicable=False,
+                reason=(
+                    f"{n_routes} routes exceeds the {MAX_ROUTE_BENCHMARK_ROUTES}-route cap "
+                    f"for per-route re-solve; analysing descriptively"
+                ),
+            )
+        if n_stops > MAX_ROUTE_BENCHMARK_STOPS:
+            return ApplicabilityResult(
+                is_applicable=False,
+                reason=(
+                    f"{n_stops:,} stops exceeds the {MAX_ROUTE_BENCHMARK_STOPS:,}-stop cap "
+                    f"for per-route re-solve; analysing descriptively"
+                ),
+            )
         return ApplicabilityResult(is_applicable=True, reason="Always applicable")
 
     def run(self, fleet: Fleet, **kwargs: object) -> list[Finding]:
