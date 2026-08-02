@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from routebench.core.config import AnalysisConfig
 from routebench.core.validation import validate_csv
 
 
@@ -316,3 +317,82 @@ class TestSyntheticRoundTrip:
         assert fleet is not None
         assert len(fleet.routes) == 5
         assert fleet.total_stops() == 50
+
+
+class TestVolumeServiceFill:
+    """F&B service-time fill scales with delivery volume, learned from the upload."""
+
+    def _fb_rows(self) -> list[dict[str, object]]:
+        # A depot plus delivery stops that lie exactly on service = 4 + 0.5*demand,
+        # so the fit is unambiguous. Two stops leave service blank (demand 20 each)
+        # to be filled from the fitted line -> 4 + 0.5*20 = 14.
+        rows: list[dict[str, object]] = [
+            {
+                "route_id": "R001",
+                "stop_sequence": 0,
+                "latitude": 32.825,
+                "longitude": -96.775,
+                "stop_type": "depot",
+                "service_time_minutes": 0,
+                "demand_units": "",
+                "planned_start_time": "2025-01-15T08:00:00+00:00",
+            }
+        ]
+        observed = [(2, 5.0), (10, 9.0), (18, 13.0), (26, 17.0), (34, 21.0), (42, 25.0)]
+        seq = 1
+        for demand, service in observed:
+            rows.append(
+                {
+                    "route_id": "R001",
+                    "stop_sequence": seq,
+                    "latitude": 32.825 + 0.01 * seq,
+                    "longitude": -96.775 + 0.01 * seq,
+                    "stop_type": "delivery",
+                    "service_time_minutes": service,
+                    "demand_units": demand,
+                    "planned_start_time": "2025-01-15T08:00:00+00:00",
+                }
+            )
+            seq += 1
+        for _ in range(2):  # blank-service stops to be filled from the fit
+            rows.append(
+                {
+                    "route_id": "R001",
+                    "stop_sequence": seq,
+                    "latitude": 32.825 + 0.01 * seq,
+                    "longitude": -96.775 + 0.01 * seq,
+                    "stop_type": "delivery",
+                    "service_time_minutes": "",
+                    "demand_units": 20,
+                    "planned_start_time": "2025-01-15T08:00:00+00:00",
+                }
+            )
+            seq += 1
+        return rows
+
+    def test_fb_fill_uses_the_fitted_line(self, tmp_path: Path) -> None:
+        csv_path = _write_csv(self._fb_rows(), tmp_path / "fb.csv")
+
+        fleet, report = validate_csv(csv_path, AnalysisConfig(industry="dsd_quickdrop"))
+
+        assert report.is_valid is True
+        assert fleet is not None
+        # The two demand-20 stops that had no service time now sit on the line.
+        filled = [s.service_time_minutes for s in fleet.routes[0].stops if s.demand_units == 20]
+        assert filled == pytest.approx([14.0, 14.0])
+        # And the note records that it was learned, not seeded.
+        note = next(d for d in report.defaults_applied if d.field == "service_time_minutes")
+        assert "fitted" in note.default_value
+        assert note.affected_row_count == 2
+
+    def test_non_fb_industry_keeps_flat_default(self, tmp_path: Path) -> None:
+        csv_path = _write_csv(self._fb_rows(), tmp_path / "flat.csv")
+
+        # No industry -> the flat default (5.0), regardless of demand.
+        fleet, report = validate_csv(csv_path)
+
+        assert fleet is not None
+        filled = [s.service_time_minutes for s in fleet.routes[0].stops if s.demand_units == 20]
+        assert filled == [5.0, 5.0]
+        note = next(d for d in report.defaults_applied if d.field == "service_time_minutes")
+        assert note.default_value == "5.0"

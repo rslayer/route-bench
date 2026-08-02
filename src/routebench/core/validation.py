@@ -17,6 +17,7 @@ import structlog
 from pydantic import ValidationError as PydanticValidationError
 
 from routebench.core.config import AnalysisConfig
+from routebench.core.industry import get_profile
 from routebench.core.schemas import (
     DefaultApplied,
     Fleet,
@@ -26,6 +27,7 @@ from routebench.core.schemas import (
     ValidationReport,
     ValidationWarning,
 )
+from routebench.core.service_time_model import VolumeServiceModel, fit_or_seed
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger()
 
@@ -319,27 +321,17 @@ def validate_csv(
             summary={"total_rows": len(df)},
         )
 
-    # service_time_minutes default
-    if "service_time_minutes" in df.columns:
-        null_count = df.filter(pl.col("service_time_minutes").is_null()).height
-        if null_count > 0:
-            df = df.with_columns(pl.col("service_time_minutes").fill_null(service_time_default))
-            defaults_applied.append(
-                DefaultApplied(
-                    field="service_time_minutes",
-                    default_value=str(service_time_default),
-                    affected_row_count=null_count,
-                )
-            )
-    else:
-        df = df.with_columns(pl.lit(service_time_default).alias("service_time_minutes"))
-        defaults_applied.append(
-            DefaultApplied(
-                field="service_time_minutes",
-                default_value=str(service_time_default),
-                affected_row_count=len(df),
-            )
-        )
+    # service_time_minutes: fill missing values.
+    #
+    # For a volume-based vertical (F&B) the fill scales with delivery volume —
+    # service = base + per_unit * demand — and the coefficients are LEARNED from
+    # this upload's own delivery stops that carry a real time, seeded by the
+    # industry profile. Everywhere else (or with no demand column) it is the flat
+    # default. See core/service_time_model.py.
+    volume_model = _resolve_volume_model(df, config)
+    df, filled_note = _fill_service_time(df, service_time_default, volume_model)
+    if filled_note is not None:
+        defaults_applied.append(filled_note)
 
     # stop_type default: "depot" if stop_sequence==0, else "delivery"
     if "stop_type" in df.columns:
@@ -694,6 +686,96 @@ def _check_bounding_box(
                 ),
             )
         )
+
+
+def _resolve_volume_model(df: pl.DataFrame, config: AnalysisConfig) -> VolumeServiceModel | None:
+    """Build the volume-based service model for a fleet, or None for a flat fill.
+
+    Only the F&B profiles carry volume seeds, and the model only makes sense when
+    the upload has a `demand_units` column to scale against. When both hold, the
+    line is fitted from this fleet's own delivery stops that already carry a real
+    service time (depot rows excluded), seeded by the profile.
+    """
+    profile = get_profile(config.industry)
+    if (
+        profile is None
+        or profile.service_per_unit_minutes is None
+        or profile.service_base_minutes is None
+        or "demand_units" not in df.columns
+    ):
+        return None
+
+    demand_vals = [_safe_float(v) for v in df["demand_units"].to_list()]
+    seq_vals = df["stop_sequence"].to_list()
+    if "service_time_minutes" in df.columns:
+        service_vals = [_safe_float(v) for v in df["service_time_minutes"].to_list()]
+    else:
+        service_vals = [None] * len(df)
+
+    observations = [
+        (demand_vals[i], service_vals[i])
+        for i in range(len(df))
+        if seq_vals[i] != 0 and service_vals[i] is not None and demand_vals[i] is not None
+    ]
+    return fit_or_seed(
+        observations,
+        seed_base=profile.service_base_minutes,
+        seed_per_unit=profile.service_per_unit_minutes,
+    )
+
+
+def _fill_service_time(
+    df: pl.DataFrame,
+    service_time_default: float,
+    volume_model: VolumeServiceModel | None,
+) -> tuple[pl.DataFrame, DefaultApplied | None]:
+    """Fill missing service_time_minutes, per the volume model when one applies.
+
+    Returns the updated frame and a DefaultApplied note (None if nothing filled).
+    A real per-stop time in the upload always wins; only nulls are filled.
+    """
+
+    def _volume_label(model: VolumeServiceModel) -> str:
+        return f"{model.base_minutes:.1f} + {model.per_unit_minutes:.2f}/unit ({model.source})"
+
+    if "service_time_minutes" in df.columns:
+        existing = df["service_time_minutes"].to_list()
+        null_count = sum(1 for v in existing if v is None)
+        if null_count == 0:
+            return df, None
+        if volume_model is not None:
+            demand_vals = [_safe_float(v) for v in df["demand_units"].to_list()]
+            filled = [
+                existing[i] if existing[i] is not None else volume_model.minutes_for(demand_vals[i])
+                for i in range(len(df))
+            ]
+            df = df.with_columns(pl.Series("service_time_minutes", filled, dtype=pl.Float64))
+            return df, DefaultApplied(
+                field="service_time_minutes",
+                default_value=_volume_label(volume_model),
+                affected_row_count=null_count,
+            )
+        df = df.with_columns(pl.col("service_time_minutes").fill_null(service_time_default))
+        return df, DefaultApplied(
+            field="service_time_minutes",
+            default_value=str(service_time_default),
+            affected_row_count=null_count,
+        )
+
+    # No column at all: fill every row.
+    if volume_model is not None:
+        demand_vals = [_safe_float(v) for v in df["demand_units"].to_list()]
+        filled = [volume_model.minutes_for(d) for d in demand_vals]
+        df = df.with_columns(pl.Series("service_time_minutes", filled, dtype=pl.Float64))
+        default_value = _volume_label(volume_model)
+    else:
+        df = df.with_columns(pl.lit(service_time_default).alias("service_time_minutes"))
+        default_value = str(service_time_default)
+    return df, DefaultApplied(
+        field="service_time_minutes",
+        default_value=default_value,
+        affected_row_count=len(df),
+    )
 
 
 def _safe_float(val: object) -> float | None:

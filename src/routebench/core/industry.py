@@ -75,6 +75,13 @@ class IndustryProfile(BaseModel):
     # Fills Stop.service_time_minutes when the CSV leaves it blank. A real
     # per-stop value in the upload always wins over this.
     default_service_minutes: float = Field(gt=0)
+    # Optional volume-based service model: when set, service time is estimated as
+    # `base + per_unit * demand_units` instead of a flat default — because in F&B
+    # a stop's dwell scales with how much is delivered. These are only a SEED; the
+    # validator fits the line from the upload's own observed stops when it can
+    # (see core/service_time_model.py). None => flat default_service_minutes.
+    service_base_minutes: float | None = Field(default=None, ge=0)
+    service_per_unit_minutes: float | None = Field(default=None, ge=0)
     shift_hours: float = Field(gt=0, le=24)
     # Expected stops per route — a sanity band, not a hard limit.
     stops_per_route: tuple[int, int]
@@ -134,6 +141,10 @@ INDUSTRY_PROFILES: dict[str, IndustryProfile] = {
             "stops. Territory balance and delivery-window compliance matter most."
         ),
         default_service_minutes=18.0,
+        # ~5 min fixed (park, paperwork, payment) + ~0.6 min/case; ~18 min at a
+        # typical ~22-case drop. A seed only — fitted from real data when present.
+        service_base_minutes=5.0,
+        service_per_unit_minutes=0.6,
         shift_hours=10.0,
         stops_per_route=(15, 35),
         service_minutes_band=(5.0, 30.0),
@@ -149,6 +160,10 @@ INDUSTRY_PROFILES: dict[str, IndustryProfile] = {
             "stops at 30-45 min each. Scheduled windows and territory balance dominate."
         ),
         default_service_minutes=40.0,
+        # ~10 min fixed + ~2 min/case for full stock rotation and displays;
+        # ~40 min at a ~15-case large-format drop. Seed; fitted when data allows.
+        service_base_minutes=10.0,
+        service_per_unit_minutes=2.0,
         shift_hours=10.0,
         stops_per_route=(8, 16),
         service_minutes_band=(25.0, 60.0),
