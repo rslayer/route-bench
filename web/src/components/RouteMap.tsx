@@ -1,7 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import maplibregl, { type ExpressionSpecification, type Map as MapLibreMap } from "maplibre-gl";
+// maplibre-gl 6 dropped its default export in favour of named exports, so the
+// whole module is imported as a namespace (every use here is `maplibregl.*`).
+import * as maplibregl from "maplibre-gl";
+import type { ExpressionSpecification, Map as MapLibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
   ACTUAL_OFFSET_PX,
