@@ -21,7 +21,13 @@ COPY web/ .
 ARG NEXT_PUBLIC_API_BASE="http://localhost:8000"
 ENV NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE}
 
-RUN npm run build
+# Build with webpack, NOT Turbopack. Next 16 made `next build` default to
+# Turbopack, and under `output: "standalone"` Turbopack does not bundle
+# MapLibre's tile Web Worker into the image the way webpack does — the worker
+# never loads at runtime, so no basemap tiles or route lines render and the map
+# is blank. Webpack (the Next 15 default this app shipped on) bundles it
+# correctly. Revisit if/when Turbopack + standalone handles library workers.
+RUN npm run build -- --webpack
 
 FROM node:22-bookworm-slim AS runtime
 WORKDIR /app
