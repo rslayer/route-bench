@@ -1,15 +1,12 @@
-import { dirname } from "path";
-import { fileURLToPath } from "url";
-import { FlatCompat } from "@eslint/eslintrc";
+import coreWebVitals from "eslint-config-next/core-web-vitals";
+import typescript from "eslint-config-next/typescript";
 
-// eslint-config-next is still eslintrc-format; FlatCompat is the bridge Next
-// documents for flat config.
-const compat = new FlatCompat({
-  baseDirectory: dirname(fileURLToPath(import.meta.url)),
-});
-
+// eslint-config-next 16 ships native flat configs (arrays), so they are spread
+// directly. The FlatCompat bridge was only needed while the config was still in
+// the legacy eslintrc format.
 const config = [
-  ...compat.extends("next/core-web-vitals", "next/typescript"),
+  ...coreWebVitals,
+  ...typescript,
   { ignores: [".next/**", "node_modules/**", "playwright-report/**", "test-results/**"] },
 ];
 

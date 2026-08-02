@@ -68,6 +68,9 @@ export default function UploadPage() {
     // Peek, do not consume: StrictMode runs this effect twice in dev, and a
     // destructive read made the second pass see nothing.
     const staged = peekStagedFile();
+    // SSR-safe hydration read: the staged file is held client-side, so it can
+    // only be picked up here on mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setFile(staged);
     if (!staged) return;
 
