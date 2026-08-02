@@ -515,8 +515,17 @@ class TestConfigurableWeights:
         bench = _benchmark(7.0)
         a = compute_grade(_fm(2), metrics, [], bench)
         b = compute_grade(
-            _fm(2), metrics, [], bench,
-            weights={"sequencing": 0.6, "fleet": 0.1, "time": 0.1, "compliance": 0.1, "density": 0.1},
+            _fm(2),
+            metrics,
+            [],
+            bench,
+            weights={
+                "sequencing": 0.6,
+                "fleet": 0.1,
+                "time": 0.1,
+                "compliance": 0.1,
+                "density": 0.1,
+            },
         )
         sa = {d.key: d.score for d in a.dimensions}
         sb = {d.key: d.score for d in b.dimensions}
