@@ -110,8 +110,12 @@ async def create_session(
     if config:
         try:
             config_data = json.loads(config)
-        except json.JSONDecodeError as exc:
-            raise HTTPException(status_code=422, detail=f"Invalid config: {exc}") from exc
+        except (json.JSONDecodeError, RecursionError) as exc:
+            # json is a recursive-descent parser, so deeply nested input (e.g.
+            # 10k levels of "[[[…]]]", a few tens of KB) raises the builtin
+            # RecursionError rather than JSONDecodeError — a cheap crash vector
+            # that used to escape as a 500. Both mean "unparseable config" -> 422.
+            raise HTTPException(status_code=422, detail="Invalid config: unparseable JSON") from exc
         # Valid JSON that is not an object — "[1,2,3]", "42", a bare string —
         # reaches AnalysisConfig(**data) and raises TypeError, which the old
         # handler did not catch, so a malformed request became a 500. Rejecting

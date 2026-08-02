@@ -278,6 +278,47 @@ def validate_csv(
     # Apply defaults for optional fields
     service_time_default = config.service_time.default_minutes
 
+    # Coerce service_time_minutes to numeric up front. It is the one optional
+    # numeric column that did NOT go through a safe cast, so two inputs crashed
+    # the request with a 500 instead of a clean 422: a non-numeric string ("abc")
+    # raised a builtin ValueError from float() during Stop construction, and a
+    # column polars inferred as Boolean (all cells "True"/blank) raised
+    # InvalidOperationError from fill_null(<float default>). A boolean is not a
+    # duration, so reject it; anything else that will not cast to a number is a
+    # clean INVALID_TYPE.
+    if "service_time_minutes" in df.columns:
+        st_dtype = df.schema["service_time_minutes"]
+        if st_dtype == pl.Boolean:
+            errors.append(
+                ValidationError(
+                    row=None,
+                    column="service_time_minutes",
+                    code="INVALID_TYPE",
+                    message="service_time_minutes must be numeric, not boolean",
+                )
+            )
+        elif not st_dtype.is_numeric():
+            try:
+                df = df.with_columns(pl.col("service_time_minutes").cast(pl.Float64))
+            except Exception:
+                errors.append(
+                    ValidationError(
+                        row=None,
+                        column="service_time_minutes",
+                        code="INVALID_TYPE",
+                        message="service_time_minutes must be numeric",
+                    )
+                )
+
+    if errors:
+        return None, ValidationReport(
+            is_valid=False,
+            errors=errors,
+            warnings=warnings,
+            defaults_applied=defaults_applied,
+            summary={"total_rows": len(df)},
+        )
+
     # service_time_minutes default
     if "service_time_minutes" in df.columns:
         null_count = df.filter(pl.col("service_time_minutes").is_null()).height

@@ -106,3 +106,10 @@ class TestConfigIntegration:
         cfg = AnalysisConfig()
         assert cfg.industry is None
         assert cfg.grading_weights is None
+
+
+def test_unknown_industry_key_is_rejected() -> None:
+    """A typo'd/fabricated industry must 422 at config construction, like an
+    unknown traffic profile — not silently resolve to None (robustness run 4)."""
+    with pytest.raises(ValidationError):
+        AnalysisConfig(industry="totally-made-up-industry")

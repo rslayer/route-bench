@@ -509,3 +509,32 @@ class TestSamplesMount:
         resp = app.get("/samples/industry/courier.csv")
         assert resp.status_code == 200
         assert "route_id" in resp.text
+
+
+class TestIngestRobustness:
+    """Adversarial inputs that used to 500; each must be a clean 422 (robustness run 4)."""
+
+    def test_non_numeric_service_time_is_422(self, app: TestClient) -> None:
+        csv = (
+            b"route_id,stop_sequence,latitude,longitude,service_time_minutes\n"
+            b"R-001,0,32.825,-96.775,\nR-001,1,32.830,-96.770,abc\n"
+        )
+        resp = app.post("/sessions", files={"file": ("t.csv", csv, "text/csv")})
+        assert resp.status_code == 422
+
+    def test_boolean_service_time_column_is_422(self, app: TestClient) -> None:
+        csv = (
+            b"route_id,stop_sequence,latitude,longitude,service_time_minutes\n"
+            b"R-001,0,32.825,-96.775,\nR-001,1,32.830,-96.770,True\n"
+        )
+        resp = app.post("/sessions", files={"file": ("t.csv", csv, "text/csv")})
+        assert resp.status_code == 422
+
+    def test_deeply_nested_config_json_is_422(self, app: TestClient) -> None:
+        nested = "[" * 10_000 + "1" + "]" * 10_000
+        resp = app.post(
+            "/sessions",
+            files={"file": ("t.csv", _make_valid_csv(), "text/csv")},
+            data={"config": nested},
+        )
+        assert resp.status_code == 422

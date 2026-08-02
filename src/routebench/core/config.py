@@ -15,7 +15,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from routebench.core.industry import GradingWeights
+from routebench.core.industry import INDUSTRY_PROFILES, GradingWeights
 
 # The repository root, so the .env file is found regardless of the working
 # directory the process was launched from. This module is
@@ -204,6 +204,18 @@ class AnalysisConfig(BaseModel):
     route_min_time_limit_s: int = Field(default=5, gt=0)
     solver_seconds_per_fleet_stop: float = Field(default=3.0, ge=0)
     fleet_min_time_limit_s: int = Field(default=20, gt=0)
+
+    @field_validator("industry")
+    @classmethod
+    def _known_industry(cls, v: str | None) -> str | None:
+        """Reject an unknown industry key outright, the way an unknown traffic
+        profile is rejected. Without this a typo ("courrier") sailed through as a
+        202 and then silently resolved to None deep in the pipeline — no
+        industry weights, no service-time band check — with no error anywhere."""
+        if v is not None and v not in INDUSTRY_PROFILES:
+            msg = f"Unknown industry {v!r}; known: {sorted(INDUSTRY_PROFILES)}"
+            raise ValueError(msg)
+        return v
 
     @field_validator("traffic", mode="before")
     @classmethod
