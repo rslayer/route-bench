@@ -21,7 +21,7 @@ dependencies = [
     "structlog",
     "python-multipart",
     "httpx",
-    "fastapi>=0.115",
+    "fastapi>=0.141.1",
     "uvicorn[standard]",
     "aioboto3",
     "sse-starlette",
