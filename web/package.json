@@ -18,7 +18,7 @@
     "react-dom": "19.2.8"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "^3.3.6",
+    "@eslint/eslintrc": "^3.3.7",
     "@playwright/test": "^1.63.0",
     "@types/node": "^26.5.0",
     "@types/papaparse": "^5.3.15",
